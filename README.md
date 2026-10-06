@@ -95,7 +95,7 @@ workflow in a few minutes:
 
 ```bash
 python examples/toy_model.py                 # writes the example data
-bash examples/run_all.sh toy_scalar          # or toy_time_dependent
+python examples/run_all.py toy_scalar        # or toy_time_dependent
 ```
 
 ## Citing

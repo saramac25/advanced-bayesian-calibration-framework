@@ -62,7 +62,14 @@ h5py, emcee, ArviZ, SALib, statsmodels, matplotlib.
 | 07 | `07_postprocessing.py` | posterior summaries and plots: standard, hierarchical or both | `postprocessing/` |
 | 08 | `08_validation.py` | z-scores, coverage, RMSE from solver re-runs with posterior samples | `validation/` |
 
-Each script is run with the configuration file:
+Run the whole chain with one command (main entry point):
+
+```bash
+python workflows/run_workflow.py my_study/config.yaml              # all applicable steps
+python workflows/run_workflow.py my_study/config.yaml --steps 3-7  # only some steps
+```
+
+or each step on its own, e.g. after changing the configuration:
 
 ```bash
 python workflows/05_run_hierarchical.py my_study/config.yaml

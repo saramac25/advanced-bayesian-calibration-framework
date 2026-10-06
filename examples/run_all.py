@@ -2,14 +2,14 @@
 
     python examples/run_all.py toy_scalar
     python examples/run_all.py toy_time_dependent
+
+Generates the example data if needed, then calls workflows/run_workflow.py
+(steps 01-07) on the example configuration.
 """
 
 import subprocess
 import sys
 from pathlib import Path
-
-STEPS = ["01_sensitivity_morris", "02_correlation_analysis", "03_train_surrogates",
-         "04_run_standard", "05_run_hierarchical", "06_diagnostics", "07_postprocessing"]
 
 
 def main():
@@ -22,13 +22,9 @@ def main():
     if not (folder / "data" / "input_data.h5").exists():
         print("Example data not found: generating them with toy_model.py")
         subprocess.run([sys.executable, str(here / "toy_model.py")], check=True)
-    for step in STEPS:
-        print(f"\n=================== {step}")
-        cmd = [sys.executable, str(here.parent / "workflows" / f"{step}.py"), "config.yaml"]
-        if step.startswith(("04", "05")):
-            cmd.append("--no-progress")
-        subprocess.run(cmd, cwd=folder, check=True)
-    print(f"\nDone. Results in {folder / 'results'}")
+    subprocess.run([sys.executable, str(here.parent / "workflows" / "run_workflow.py"),
+                    str(folder / "config.yaml"), "--steps", "1-7"], check=True)
+    print(f"\nResults in {folder / 'results'}")
 
 
 if __name__ == "__main__":

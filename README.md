@@ -8,7 +8,7 @@ simulation models. It brings together, in one workflow:
   control, between inputs and outputs and between the outputs of
   different experiments;
 * **Gaussian Process surrogates** with a configurable kernel (RBF,
-  Matern, rational quadratic, sums and products);
+  Matern, rational quadratic, mixed (sums and products));
 * **Principal Component Analysis** of time-dependent outputs, so that a
   quantity of interest (QoI) measured over time is calibrated in a
   reduced space;
@@ -31,13 +31,11 @@ It was developed and demonstrated in the PhD thesis of Sara Maccario
 ## Credits
 
 The hierarchical MH-within-Gibbs sampler (`src/abcf/calibration/hierarchical/mhwg/`)
-was written by **Gustav Robertson**; see Robertson et al. (2025)
-*[full reference to be added]*. The changes made for this framework are
+was written by **Gustav Robertson**; see Robertson et al. (2026) [DOI:10.1016/j.nucengdes.2026.115030]. The changes made for this framework are
 listed in the header of each file and do not alter the algorithm.
 
 The integration into a complete framework (sensitivity screening, GP and
-PCA surrogates, standard calibration, Gibbs sweep and joint shift move,
-diagnostics, validation) is the work of **Sara Maccario**.
+PCA surrogates, standard calibration, driver of the hierarchical sampler, diagnostics, validation) is the work of **Sara Maccario**.
 
 ## Installation
 

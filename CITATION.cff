@@ -5,7 +5,7 @@ version: 0.1.0
 authors:
   - family-names: Maccario
     given-names: Sara
-    affiliation: "Paul Scherrer Institut (PSI); EPFL"
+    affiliation: "Paul Scherrer Institut (PSI); Swiss Federal Technology Institute of Lausanne (EPFL)"
   - family-names: Robertson
     given-names: Gustav
     # Author of the hierarchical MH-within-Gibbs sampler (src/abcf/calibration/hierarchical/mhwg)

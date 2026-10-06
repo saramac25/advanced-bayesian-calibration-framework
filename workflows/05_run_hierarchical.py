@@ -28,7 +28,8 @@ def main():
     print(f"Hierarchical calibration of {setup.calibrated_names} on {len(cases)} case(s); "
           f"fixed: {setup.fixed_values or 'none'}")
     print(f"{h['n_chains']} chains x {h['nsteps']} steps, burn-in {h['burnin_fraction']:.0%}, "
-          f"adaptation: {h['adaptation']['type']}, joint shift move: {h['joint_shift_move']['enabled']}")
+          f"adaptation: mu={h['adaptation']['mu']}, sigma={h['adaptation']['sigma']}, X={h['adaptation']['X']}, "
+          f"joint shift move: {h['joint_shift_move']['enabled']}")
     liks = build_likelihoods(cfg, data, sset, setup, cases)
     res = run_hierarchical(liks, cases, lower, upper, cfg, progress=not args.no_progress)
 
@@ -41,13 +42,16 @@ def main():
             "include_gp_variance": bool(cfg["likelihood"]["include_gp_variance"]),
             "relative_noise": float(cfg["measurement_noise"]["relative"]),
             "n_chains": int(h["n_chains"]), "nsteps": res["nsteps"], "burnin": res["burnin"],
-            "adaptation": h["adaptation"]["type"], "joint_shift_move": bool(h["joint_shift_move"]["enabled"]),
+            "adaptation": f"mu={h['adaptation']['mu']}, sigma={h['adaptation']['sigma']}, X={h['adaptation']['X']}", "joint_shift_move": bool(h["joint_shift_move"]["enabled"]),
             "seeds": res["seeds"], "wall_clock_s": res["wall_clock_s"],
         },
         "scaler": {"mean": sset.scaler.mean, "std": sset.scaler.std,
                    "lower": sset.scaler.lower, "upper": sset.scaler.upper},
         "chains": {"mu": res["mu"], "sigma": res["sigma"], "X": res["X"], "logpost": res["logpost"],
                    "acceptance_shift": res["acceptance_shift"].astype(np.int8),
+                   "acceptance_mu": res["acceptance_mu"].astype(np.int8),
+                   "acceptance_sigma": res["acceptance_sigma"].astype(np.int8),
+                   "acceptance_X": res["acceptance_X"].astype(np.int8),
                    "shift_std_final": res["shift_std_final"]},
     })
     print(f"\nWall clock per chain: {np.round(res['wall_clock_s'], 1)} s\nSaved: {path}")

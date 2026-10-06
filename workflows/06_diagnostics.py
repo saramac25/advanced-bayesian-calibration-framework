@@ -2,10 +2,15 @@
 time-dependent QoI: the method is read from the results file).
 
 Criteria (config, block `diagnostics`): R-hat < rhat_max, bulk ESS >=
-ess_per_chain * number of chains (walkers for emcee), MCSE/sigma
-(overlapping batch means), acceptance rate, wall-clock time. For the
-hierarchical sampler also: acceptance per case, adaptation collapse
-(with a suggested fixed proposal covariance) and NaN check.
+ess_per_chain * number of chains (walkers for emcee), acceptance rate in
+range, MCSE/sigma (overlapping batch means; checked only if
+mcse_over_std_max is set), wall-clock time.
+
+Hierarchical calibration: one table with every block of the sampler,
+mu_d, sigma_d and X[case, d], plus the acceptance of the joint shift
+move, an adaptation-collapse check (with a suggested fixed proposal
+covariance) and a NaN check. Every failed criterion comes with a
+SUGGESTION.
 
   python workflows/06_diagnostics.py config.yaml            (latest SC and HC runs)
   python workflows/06_diagnostics.py config.yaml --file results/calibration/HC_....h5
@@ -17,90 +22,133 @@ import numpy as np
 import pandas as pd
 
 from abcf.config import load_config, output_dir
-from abcf.diagnostics.convergence import acceptance_from_chain, chain_diagnostics
 from abcf.diagnostics import sampler_health as health
+from abcf.diagnostics.advice import hierarchical_advice, standard_advice
+from abcf.diagnostics.convergence import acceptance_from_chain, chain_diagnostics
 from abcf.io import load_results
 from abcf.workflow import latest_result, parse_args
 
+pd.set_option("display.width", 200)
 
-def verdict(row, cfg, n_chains):
+
+def criteria_ok(row, cfg, n_chains):
     d = cfg["diagnostics"]
     ok = row["rhat"] < d["rhat_max"] and row["ess_bulk"] >= d["ess_per_chain"] * n_chains
+    lo, hi = row["acceptance_range"]
+    if row.get("acceptance") is not None and not np.isnan(row["acceptance"]):
+        ok = ok and lo <= row["acceptance"] <= hi
     if d["mcse_over_std_max"] is not None:
         ok = ok and row["mcse_over_std"] <= d["mcse_over_std_max"]
     return bool(ok)
 
 
-def table(chains, names, block, cfg, n_chains):
+def block_rows(chains, names, block, case, acceptance, acc_range, cfg, n_chains):
+    """Rows for a block; chains (n_chains, n_draws, p), acceptance scalar or (p,)."""
     dg = chain_diagnostics(chains)
     rows = []
     for j, n in enumerate(names):
-        row = {"block": block, "parameter": n, **{k: float(v[j]) for k, v in dg.items()},
-               "ess_threshold": cfg["diagnostics"]["ess_per_chain"] * n_chains}
-        row["pass"] = verdict(row, cfg, n_chains)
+        acc = acceptance[j] if np.ndim(acceptance) else acceptance
+        row = {"block": block, "case": case, "parameter": n,
+               **{k: float(v[j]) for k, v in dg.items()},
+               "ess_threshold": cfg["diagnostics"]["ess_per_chain"] * n_chains,
+               "acceptance": float(acc), "acceptance_range": tuple(acc_range)}
+        row["pass"] = criteria_ok(row, cfg, n_chains)
         rows.append(row)
     return rows
 
 
+def diagnose_standard(r, cfg, out, stem):
+    md, ch = r["metadata"], r["chains"]
+    names, burnin = list(md["param_names"]), int(md["burnin"])
+    theta = ch["theta"][:, burnin:, :]
+    n_walkers = theta.shape[0]
+    acc = float(np.mean(ch["acceptance"]))
+    rows = block_rows(theta, names, "theta", "", acc, cfg["diagnostics"]["acceptance_range_standard"],
+                      cfg, n_walkers)
+    df = pd.DataFrame(rows)
+    print(f"walkers = {n_walkers}, steps = {md['nsteps']}, burn-in = {burnin}, "
+          f"wall clock = {float(np.sum(md['wall_clock_s'])):.1f} s")
+    advice = standard_advice(acc, df["rhat"].max(), df["ess_bulk"].min(), n_walkers, int(md["nsteps"]), cfg)
+    return df, advice
+
+
+def diagnose_hierarchical(r, cfg, out, stem):
+    md, ch = r["metadata"], r["chains"]
+    names, burnin, nsteps = list(md["param_names"]), int(md["burnin"]), int(md["nsteps"])
+    cases = list(md["case_ids"])
+    d = cfg["diagnostics"]
+    mu, sig, X = ch["mu"], ch["sigma"], ch["X"]
+    n_chains, p = mu.shape[0], mu.shape[2]
+    range_1d = d["acceptance_range_1d"]
+    range_X = range_1d if p == 1 else d["acceptance_range_X"]
+
+    recorded = "acceptance_mu" in ch
+    if recorded:
+        acc_mu = ch["acceptance_mu"][:, burnin:, :].mean(axis=(0, 1))
+        acc_sig = ch["acceptance_sigma"][:, burnin:, :].mean(axis=(0, 1))
+        acc_X = ch["acceptance_X"][:, burnin:, :].mean(axis=(0, 1))
+    else:   # results written by an older version: estimate from the chains
+        acc_mu = np.array([np.mean([acceptance_from_chain(mu[c, burnin:, j]) for c in range(n_chains)])
+                           for j in range(p)])
+        acc_sig = np.array([np.mean([acceptance_from_chain(sig[c, burnin:, j]) for c in range(n_chains)])
+                            for j in range(p)])
+        acc_X = np.array([np.mean([acceptance_from_chain(X[c, burnin:, e, :]) for c in range(n_chains)])
+                          for e in range(len(cases))])
+        print("NOTE: acceptance estimated from the chains (older results file); it is inflated "
+              "if the joint shift move was used.")
+
+    rows = block_rows(mu[:, burnin:], names, "mu", "", acc_mu, range_1d, cfg, n_chains)
+    rows += block_rows(sig[:, burnin:], names, "sigma", "", acc_sig, range_1d, cfg, n_chains)
+    for e, cid in enumerate(cases):
+        rows += block_rows(X[:, burnin:, e, :], names, "X", cid, acc_X[e], range_X, cfg, n_chains)
+    df = pd.DataFrame(rows)
+
+    print(f"chains = {n_chains}, steps = {nsteps}, burn-in = {burnin}, "
+          f"wall clock per chain = {np.round(np.atleast_1d(md['wall_clock_s']), 1)} s")
+    if md.get("joint_shift_move") and "acceptance_shift" in ch:
+        acc_shift = ch["acceptance_shift"][:, burnin:, :].mean(axis=(0, 1))
+        print("Joint shift move acceptance: " + ", ".join(f"{n} {a:.2f}" for n, a in zip(names, acc_shift)))
+
+    coll, sugg = health.collapse_check(X, nsteps, cases, collapse_ar=d["collapse_ratio"],
+                                       acc=ch["acceptance_X"] if recorded else None)
+    coll.to_csv(out / f"{stem}_collapse_check.csv", index=False)
+    if coll["collapsed"].any():
+        print("Adaptation collapse detected for: "
+              f"{sorted(set(coll.loc[coll['collapsed'], 'case']))}. SUGGESTION, add to the config:")
+        print(health.format_fixed_cov_yaml(sugg))
+    nans = health.nan_check(X, cases)
+    print("NaN in the chains: " + (str(nans) if nans else "none"))
+
+    advice = []
+    for row in rows:
+        if not row["pass"]:
+            label = f"{row['block']}[{row['case'] + ', ' if row['case'] else ''}{row['parameter']}]"
+            advice += [f"{label}: {a}" for a in hierarchical_advice(row, cfg, n_chains, nsteps)]
+    return df, advice
+
+
 def diagnose(path: Path, cfg):
     r = load_results(path)
-    md, ch = r["metadata"], r["chains"]
-    names = list(md["param_names"])
-    burnin = int(md["burnin"])
+    md = r["metadata"]
     out = output_dir(cfg, "diagnostics")
     stem = path.stem
-    wall = np.atleast_1d(md["wall_clock_s"])
     print(f"\n=== {stem} ({md['method']}, {md['qoi_type']} QoI) ===")
-
     if md["method"] == "SC":
-        theta = ch["theta"][:, burnin:, :]
-        n_chains = theta.shape[0]
-        rows = table(theta, names, "theta", cfg, n_chains)
-        acc = float(np.mean(ch["acceptance"]))
-        lo, hi = cfg["diagnostics"]["acceptance_range_standard"]
-        print(f"walkers = {n_chains}, steps = {md['nsteps']}, burn-in = {burnin}, "
-              f"acceptance = {acc:.3f} ({'ok' if lo <= acc <= hi else 'OUT of range'} [{lo}, {hi}]), "
-              f"wall clock = {wall.sum():.1f} s")
+        df, advice = diagnose_standard(r, cfg, out, stem)
     else:
-        mu, sig, X = ch["mu"][:, burnin:, :], ch["sigma"][:, burnin:, :], ch["X"]
-        n_chains = mu.shape[0]
-        rows = table(mu, names, "mu", cfg, n_chains) + table(sig, names, "sigma", cfg, n_chains)
-        for b, arr in (("mu", ch["mu"]), ("sigma", ch["sigma"])):
-            for j, n in enumerate(names):
-                ar = np.mean([acceptance_from_chain(arr[c, burnin:, j]) for c in range(n_chains)])
-                for row in rows:
-                    if row["block"] == b and row["parameter"] == n:
-                        row["acceptance"] = ar
-        cases = list(md["case_ids"])
-        acc = health.acceptance_table(X, burnin, cases, names,
-                                      cfg["diagnostics"]["acceptance_range_hierarchical"])
-        acc.to_csv(out / f"{stem}_acceptance_X.csv", index=False)
-        coll, sugg = health.collapse_check(X, int(md["nsteps"]), cases,
-                                           collapse_ar=cfg["diagnostics"]["collapse_ratio"])
-        coll.to_csv(out / f"{stem}_collapse_check.csv", index=False)
-        nans = health.nan_check(X, cases)
-        x_rows = []
-        for e, cid in enumerate(cases):
-            x_rows += [dict(r, case=cid) for r in table(X[:, burnin:, e, :], names, "X", cfg, n_chains)]
-        pd.DataFrame(x_rows).to_csv(out / f"{stem}_convergence_X.csv", index=False)
-        print(f"chains = {n_chains}, steps = {md['nsteps']}, burn-in = {burnin}, "
-              f"wall clock per chain = {np.round(wall, 1)} s")
-        bad = acc[~acc["ok"]]
-        print(f"X blocks with acceptance out of range: {len(bad)}/{len(acc)}")
-        if coll["collapsed"].any():
-            print("Adaptation collapse detected for: "
-                  f"{sorted(set(coll.loc[coll['collapsed'], 'case']))}. Suggested config:")
-            print(health.format_fixed_cov_yaml(sugg))
-        print("NaN in the chains: " + (str(nans) if nans else "none"))
-
-    df = pd.DataFrame(rows)
-    df["wall_clock_s_total"] = float(wall.sum())
+        df, advice = diagnose_hierarchical(r, cfg, out, stem)
+    df["wall_clock_s_total"] = float(np.sum(md["wall_clock_s"]))
     df.to_csv(out / f"{stem}_convergence.csv", index=False)
-    cols = [c for c in ["block", "parameter", "rhat", "ess_bulk", "ess_tail", "ess_threshold",
-                        "mcse_over_std", "acceptance", "pass"] if c in df.columns]
-    print(df[cols].to_string(index=False, float_format="%.4g"))
-    if not df["pass"].all():
-        print("WARNING: not all criteria are met; run longer chains or tune the proposals.")
+    cols = ["block", "case", "parameter", "rhat", "ess_bulk", "ess_tail", "ess_threshold",
+            "mcse_over_std", "acceptance", "pass"]
+    show = df[cols] if df["case"].astype(bool).any() else df[[c for c in cols if c != "case"]]
+    print(show.to_string(index=False, float_format="%.4g"))
+    if df["pass"].all():
+        print("All criteria met.")
+    else:
+        print(f"{int((~df['pass']).sum())}/{len(df)} rows do not meet all criteria.")
+        for a in dict.fromkeys(advice):
+            print(f"  SUGGESTION: {a}")
 
 
 def main():

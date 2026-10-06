@@ -12,7 +12,7 @@ synthetic_truth_file: data/synthetic_truth.h5
 
 parameters:
   theta_1: {calibrate: true,  bounds: [0.5, 1.5]}
-  theta_2: {calibrate: true,  bounds: [0.5, 1.5]}
+  theta_2: {calibrate: false, fixed_value: 0.9, bounds: [0.5, 1.5]}
   theta_3: {calibrate: false, fixed_value: 1.0, bounds: [0.5, 1.5]}
 
 measurement_noise:
@@ -28,13 +28,13 @@ surrogate:
   n_restarts_optimizer: 2
 
 standard:
-  stretch_a: 3.0
+  stretch_a: 9.0
   walker_multipliers: [4]
   nsteps_list: [6000]
 
 hierarchical:
   n_chains: 2
-  nsteps: 6000
+  nsteps: 10000
   joint_shift_move: {enabled: true}
   adaptation: {start: 300, proposal_update_start: 600}
 

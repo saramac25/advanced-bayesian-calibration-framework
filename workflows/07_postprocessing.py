@@ -24,47 +24,118 @@ from abcf.workflow import latest_result, load_all, parse_args  # noqa: E402
 C_SC, C_HC, C_TRUE, C_EXP = "#e69f00", "#009e73", "#0072b2", "#0b2c5a"
 
 
-def comparison_plots(posts, truth, setup, figs):
+def _legend_below(fig, ax, ncol=2):
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=ncol,
+               frameon=False, fontsize=8)
+
+
+def comparison_plots(posts, truth, setup, cfg, val_cases, figs):
+    """Per parameter: SC posterior, HC population predictive and mu; true case values."""
     for j, name in enumerate(setup.calibrated_names):
-        fig, ax = plt.subplots(figsize=(7, 4.5))
+        k = setup.calibrated_idx[j]
+        fig, ax = plt.subplots(figsize=(7, 4.2))
         if "SC" in posts:
             ax.hist(posts["SC"].theta[:, j], bins=60, density=True, histtype="step", lw=2,
                     color=C_SC, label="standard: posterior")
         if "HC" in posts:
             ax.hist(posts["HC"].population(20000)[:, j], bins=60, density=True, histtype="step", lw=2,
-                    color=C_HC, label="hierarchical: population predictive")
+                    color=C_HC, label="hierarchical: population predictive (new case)")
             ax.hist(posts["HC"].mu[:, j], bins=60, density=True, alpha=0.25, color=C_HC,
-                    label=r"hierarchical: $\mu$")
+                    label=r"hierarchical: population mean $\mu$")
         if truth is not None:
-            k = setup.calibrated_idx[j]
-            if truth["population"] is not None:
-                ax.axvline(truth["population"][k], color=C_TRUE, lw=2, label="true population value")
-            vals = [t[k] for t in truth["cases"].values()]
-            if vals:
-                ax.plot(vals, np.zeros(len(vals)), "|", ms=18, mew=2, color=C_TRUE,
-                        label="true case values")
+            cal = [t[k] for cid, t in truth["cases"].items() if cid not in val_cases]
+            val = [t[k] for cid, t in truth["cases"].items() if cid in val_cases]
+            ax.plot(cal, np.zeros(len(cal)), "o", ms=7, color=C_TRUE, clip_on=False, zorder=5,
+                    label="true value of a calibration case")
+            if val:
+                ax.plot(val, np.zeros(len(val)), "o", ms=7, mfc="white", mec=C_TRUE, mew=1.5,
+                        clip_on=False, zorder=5, label="true value of a validation case")
+            if cfg["postprocessing"]["show_reference_population"] and len(cal) > 1:
+                m, s = np.mean(cal), np.std(cal)
+                xx = np.linspace(*ax.get_xlim(), 400)
+                ax.plot(xx, np.exp(-0.5 * ((xx - m) / s) ** 2) / (s * np.sqrt(2 * np.pi)), color=C_TRUE,
+                        lw=1.5, ls="--", label=r"$\mathcal{N}$(mean, std) of the calibration-case true values")
         ax.set_xlabel(name)
         ax.set_ylabel("density")
-        ax.legend(fontsize=8)
+        _legend_below(fig, ax)
         fig.tight_layout()
-        fig.savefig(figs / f"posterior_{name}.png", dpi=150)
+        fig.savefig(figs / f"posterior_{name}.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
 
 
-def trace_plots(res, post, figs, stem):
+def case_plots(posts, truth, setup, figs):
+    """HC: posterior of X[case] per case and parameter, with SC and the true value."""
+    if "HC" not in posts:
+        return
+    hc = posts["HC"]
+    cases = hc.case_ids
+    ncol = min(3, len(cases))
+    nrow = int(np.ceil(len(cases) / ncol))
+    for j, name in enumerate(setup.calibrated_names):
+        k = setup.calibrated_idx[j]
+        fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 2.8 * nrow), squeeze=False)
+        for e, cid in enumerate(cases):
+            ax = axes[e // ncol, e % ncol]
+            ax.hist(hc.X[:, e, j], bins=50, density=True, alpha=0.5, color=C_HC,
+                    label=f"hierarchical: X[case, {name}]")
+            if "SC" in posts:
+                ax.hist(posts["SC"].theta[:, j], bins=50, density=True, histtype="step", lw=1.5,
+                        color=C_SC, label="standard: posterior (all cases)")
+            if truth is not None and cid in truth["cases"]:
+                ax.axvline(truth["cases"][cid][k], color=C_TRUE, lw=2, label="true value")
+            ax.set_title(cid, fontsize=9)
+            ax.set_yticks([])
+        for e in range(len(cases), nrow * ncol):
+            axes[e // ncol, e % ncol].axis("off")
+        _legend_below(fig, axes[0, 0], ncol=3)
+        fig.supxlabel(name)
+        fig.tight_layout()
+        fig.savefig(figs / f"posterior_cases_{name}.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+
+def trace_plots(res, post, truth, setup, figs, stem):
     ch = res["chains"]
+    sc = res["scaler"]
+    idx = setup.calibrated_idx
     blocks = [("theta", ch["theta"])] if post.method == "SC" else [("mu", ch["mu"]), ("sigma", ch["sigma"])]
     for block, arr in blocks:
         p = arr.shape[2]
         fig, axes = plt.subplots(p, 1, figsize=(10, 2.4 * p), squeeze=False, sharex=True)
         for j in range(p):
+            scale = sc["std"][idx[j]]
+            shift = 0.0 if block == "sigma" else sc["mean"][idx[j]]
             for c in range(min(arr.shape[0], 8)):
-                axes[j, 0].plot(arr[c, :, j], lw=0.5, alpha=0.8)
+                axes[j, 0].plot(arr[c, :, j] * scale + shift, lw=0.5, alpha=0.8)
             axes[j, 0].axvline(post.burnin, color="gray", ls="--")
-            axes[j, 0].set_ylabel(f"{block}[{post.names[j]}]\n(standardised)", fontsize=8)
+            axes[j, 0].set_ylabel(f"{block}[{post.names[j]}]", fontsize=8)
         axes[-1, 0].set_xlabel("iteration")
         fig.tight_layout()
         fig.savefig(figs / f"trace_{stem}_{block}.png", dpi=120)
+        plt.close(fig)
+    if post.method != "HC":
+        return
+    X = ch["X"]
+    cases = post.case_ids
+    for j, name in enumerate(post.names):
+        scale, shift = sc["std"][idx[j]], sc["mean"][idx[j]]
+        ncol = 2
+        nrow = int(np.ceil(len(cases) / ncol))
+        fig, axes = plt.subplots(nrow, ncol, figsize=(14, 2.2 * nrow), squeeze=False, sharex=True)
+        for e, cid in enumerate(cases):
+            ax = axes[e // ncol, e % ncol]
+            for c in range(min(X.shape[0], 8)):
+                ax.plot(X[c, :, e, j] * scale + shift, lw=0.5, alpha=0.8)
+            ax.axvline(post.burnin, color="gray", ls="--")
+            if truth is not None and cid in truth["cases"]:
+                ax.axhline(truth["cases"][cid][idx[j]], color="k", lw=1.2)
+            ax.set_ylabel(cid, fontsize=8)
+        for e in range(len(cases), nrow * ncol):
+            axes[e // ncol, e % ncol].axis("off")
+        fig.suptitle(f"X[case, {name}] (black: true value)")
+        fig.tight_layout()
+        fig.savefig(figs / f"trace_{stem}_X_{name}.png", dpi=120)
         plt.close(fig)
 
 
@@ -145,9 +216,11 @@ def main():
         truth = load_synthetic_truth(resolve_path(cfg, cfg["synthetic_truth_file"]), len(setup.names))
 
     pd.concat([p.summary() for p in posts.values()]).to_csv(out / "posterior_summary.csv", index=False)
-    comparison_plots(posts, truth, setup, figs)
+    val_cases = set(cfg["data"]["validation_cases"] or [])
+    comparison_plots(posts, truth, setup, cfg, val_cases, figs)
+    case_plots(posts, truth, setup, figs)
     for m, r in results.items():
-        trace_plots(r, posts[m], figs, files[m].stem)
+        trace_plots(r, posts[m], truth, setup, figs, files[m].stem)
     pred = predictive_plots(posts, cfg, data, setup, sset, figs, cfg["postprocessing"]["n_posterior_samples"])
     if len(pred):
         pred.to_csv(out / "predictive_calibration_cases.csv", index=False)

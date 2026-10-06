@@ -113,3 +113,35 @@ def run_morris_dakota(tabular_path, bounds: dict, response_names: list):
     X, Y = read_dakota_tabular(tabular_path, list(bounds), response_names)
     ee = elementary_effects(X, Y, np.array(list(bounds.values()), dtype=float))
     return morris_indices(ee, list(bounds)), X, Y
+
+
+def plot_morris(table: pd.DataFrame, title: str, path) -> None:
+    """mu* (x) against sigma (y), one labelled point per parameter.
+
+    Dashed lines sigma/mu* = 0.1, 0.5 and 1 separate (almost) linear
+    effects, monotonic effects, and non-linear effects or interactions
+    (Garcia Sanchez et al., 2014, Energy and Buildings 68, 741-750,
+    doi:10.1016/j.enbuild.2012.08.048).
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(6.5, 5))
+    x, y = table["mu_star"].to_numpy(), table["sigma"].to_numpy()
+    top = 1.15 * max(x.max(), y.max(), 1e-12)
+    for ratio, style in ((0.1, ":"), (0.5, "--"), (1.0, "-.")):
+        ax.plot([0, top], [0, ratio * top], color="gray", ls=style, lw=1,
+                label=rf"$\sigma/\mu^*$ = {ratio:g}")
+    ax.scatter(x, y, s=50, color="#0072b2", zorder=3)
+    for xi, yi, name in zip(x, y, table["parameter"]):
+        ax.annotate(name, (xi, yi), textcoords="offset points", xytext=(6, 4), fontsize=9)
+    ax.set_xlim(0, top)
+    ax.set_ylim(0, top)
+    ax.set_xlabel(r"$\mu^*$ (mean of |elementary effects|)")
+    ax.set_ylabel(r"$\sigma$ (std of elementary effects)")
+    ax.set_title(title)
+    ax.legend(fontsize=8, loc="upper left")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)

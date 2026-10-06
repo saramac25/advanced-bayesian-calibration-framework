@@ -185,14 +185,12 @@ def write_input_data(path: str | Path, inputs: pd.DataFrame, cases: dict) -> Non
 #  synthetic_truth.h5 and validation_<method>.h5
 # --------------------------------------------------------------------------- #
 def load_synthetic_truth(path: str | Path, n_params: int) -> dict:
-    """Return {'population': (p,) or None, 'cases': {case_id: (p,)}}."""
-    out = {"population": None, "cases": {}}
+    """Return {'cases': {case_id: (p,)}}: true parameter values of each case."""
+    out = {"cases": {}}
     with h5py.File(path, "r") as f:
-        if "population" in f:
-            out["population"] = np.asarray(f["population"][()], dtype=float).ravel()
-            if out["population"].shape[0] != n_params:
-                raise DataFormatError(f"{path}: `population` must have {n_params} values.")
-        for cid, g in f.get("cases", {}).items():
+        if "cases" not in f:
+            raise DataFormatError(f"{path}: missing group `cases`.")
+        for cid, g in f["cases"].items():
             theta = np.asarray(g["theta"][()], dtype=float).ravel()
             if theta.shape[0] != n_params:
                 raise DataFormatError(f"{path}: case `{cid}`: `theta` must have {n_params} values.")

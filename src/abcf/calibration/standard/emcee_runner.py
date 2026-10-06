@@ -18,11 +18,11 @@ Tuning in two steps, as in the thesis scripts:
 from __future__ import annotations
 
 import time
-import warnings
 
 import emcee
 import numpy as np
 
+from ...diagnostics.advice import standard_advice
 from ...diagnostics.convergence import chain_diagnostics
 
 
@@ -59,14 +59,13 @@ def run_emcee(log_prob, lower, upper, nwalkers: int, nsteps: int, stretch_a: flo
             "stretch_a": stretch_a, "seed": seed}
 
 
-def _passes(run: dict, diag_cfg: dict, use_ess: bool) -> tuple:
+def _passes(run: dict, cfg: dict, use_ess: bool) -> tuple:
     d = chain_diagnostics(run["chains"][:, run["burnin"]:, :])
-    acc = run["acceptance"].mean()
-    lo, hi = diag_cfg["acceptance_range_standard"]
-    ok = bool(np.all(d["rhat"] < diag_cfg["rhat_max"]) and lo <= acc <= hi)
-    if use_ess:
-        ok = ok and bool(np.all(d["ess_bulk"] >= diag_cfg["ess_per_chain"] * run["nwalkers"]))
-    return ok, d, acc
+    acc = float(run["acceptance"].mean())
+    advice = standard_advice(acc, float(np.max(d["rhat"])),
+                             float(np.min(d["ess_bulk"])) if use_ess else np.inf,
+                             run["nwalkers"], run["nsteps"], cfg)
+    return not advice, d, acc, advice
 
 
 def tune_and_run(log_prob, lower, upper, cfg: dict, n_dim: int, progress: bool = True):
@@ -75,11 +74,12 @@ def tune_and_run(log_prob, lower, upper, cfg: dict, n_dim: int, progress: bool =
     seed = int(cfg["project"]["seed"])
     rows = []
 
-    def record(step, run, ok, d, acc):
+    def record(step, run, ok, d, acc, advice):
         rows.append({"step": step, "nwalkers": run["nwalkers"], "nsteps": run["nsteps"],
                      "rhat_max": float(np.max(d["rhat"])), "ess_bulk_min": float(np.min(d["ess_bulk"])),
                      "ess_threshold": dg["ess_per_chain"] * run["nwalkers"],
-                     "acceptance_mean": float(acc), "wall_clock_s": run["wall_clock_s"], "pass": ok})
+                     "acceptance_mean": float(acc), "wall_clock_s": run["wall_clock_s"], "pass": ok,
+                     "suggestion": " | ".join(advice)})
 
     # Step 1: number of walkers
     mults = list(s["walker_multipliers"])
@@ -91,30 +91,32 @@ def tune_and_run(log_prob, lower, upper, cfg: dict, n_dim: int, progress: bool =
             nw = max(int(m * n_dim), 2 * n_dim + 2)
             run = run_emcee(log_prob, lower, upper, nw, s["nsteps_tuning"], s["stretch_a"],
                             s["burnin_fraction"], seed + m, progress)
-            ok, d, acc = _passes(run, dg, use_ess=False)
-            record("1_walkers", run, ok, d, acc)
+            ok, d, acc, advice = _passes(run, cfg, use_ess=False)
+            record("1_walkers", run, ok, d, acc, advice)
             cand.append((ok, run["wall_clock_s"], np.max(d["rhat"]), nw))
         good = [c for c in cand if c[0]]
         if good:
             nwalkers = min(good, key=lambda c: c[1])[3]
         else:
             nwalkers = min(cand, key=lambda c: c[2])[3]
-            warnings.warn("Standard calibration, step 1: no walker number meets the criteria; "
-                          f"using the lowest R-hat ({nwalkers} walkers).")
+            print("\nStandard calibration, step 1: no walker number meets the criteria; "
+                  f"using the lowest R-hat ({nwalkers} walkers). See the 'suggestion' column "
+                  "of the tuning table.")
 
     # Step 2: number of steps
     runs = []
     for n in s["nsteps_list"]:
         run = run_emcee(log_prob, lower, upper, nwalkers, n, s["stretch_a"],
                         s["burnin_fraction"], seed + 1000 + n, progress)
-        ok, d, acc = _passes(run, dg, use_ess=True)
-        record("2_steps", run, ok, d, acc)
-        runs.append((ok, run))
-    good = [r for ok, r in runs if ok]
+        ok, d, acc, advice = _passes(run, cfg, use_ess=True)
+        record("2_steps", run, ok, d, acc, advice)
+        runs.append((ok, run, advice))
+    good = [r for ok, r, _ in runs if ok]
     if good:
         final = min(good, key=lambda r: r["wall_clock_s"])
     else:
-        final = runs[-1][1]
-        warnings.warn("Standard calibration, step 2: no run meets all criteria; keeping the longest run. "
-                      "Increase nsteps_list or check the acceptance (stretch_a).")
+        final, advice = runs[-1][1], runs[-1][2]
+        print("\nStandard calibration: no run meets all criteria; the longest run is kept.")
+        for a in advice:
+            print(f"  SUGGESTION: {a}")
     return final, rows

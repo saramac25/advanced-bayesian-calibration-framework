@@ -20,6 +20,7 @@ added by ``ParameterExpander`` before every GP call.
 
 from __future__ import annotations
 
+import os
 import time
 
 import numpy as np
@@ -57,15 +58,18 @@ def _build_samplers(mh, rng, h: dict, case_ids: list, likelihoods: list, lower, 
     v0 = h["initial_proposal_variance"]
 
     def adapt(kind, index=None):
-        if ad["type"] == "acceptance_rate":
-            return adaptation.adapt_acceptance_rate(burnin=burnin, adapt_start=ad["start"])
+        block = {"mu": "mu", "sig": "sigma", "X": "X"}[kind]
+        if ad[block] == "acceptance_rate":
+            return adaptation.adapt_acceptance_rate(
+                burnin=burnin, adapt_start=ad["start"], adapt_rate=float(ad["rate"]),
+                window=ad["window"], target_acceptance_rate=float(ad["target_acceptance"][block]))
         common = dict(adapt_start=ad["start"], proposal_update_start=ad["proposal_update_start"],
-                      adapt_stop=burnin)
+                      adapt_stop=burnin, epsilon=float(ad["epsilon"]), s_d=ad["s_d"])
         if kind == "mu":
             return adaptation.adapt_covariance_matrix_mu_d(index, **common)
         if kind == "sig":
             return adaptation.adapt_covariance_matrix_sig_d(index, **common)
-        return adaptation.adapt_covariance_matrix_X(index, epsilon=ad["epsilon"], s_d=ad["s_d"], **common)
+        return adaptation.adapt_covariance_matrix_X(index, **common)
 
     hyper = []
     for d in range(p):
@@ -124,16 +128,25 @@ def run_chain(chain: int, likelihoods: list, case_ids: list, lower, upper, cfg: 
     X_h = np.empty((nsteps, E, p))
     logpost = np.full(nsteps, np.nan)
     acc_shift = np.zeros((nsteps, p), dtype=bool)
+    # Acceptance of each Metropolis block, recorded from the samplers themselves
+    # (the chains cannot be used: the joint shift move also changes mu and X)
+    acc_mu = np.zeros((nsteps, p), dtype=bool)
+    acc_sig = np.zeros((nsteps, p), dtype=bool)
+    acc_X = np.zeros((nsteps, E), dtype=bool)
 
     def total_loglik(Xc):
         return sum(lik(Xc[e]) for e, lik in enumerate(likelihoods))
 
     t0 = time.time()
     for i in tqdm(range(nsteps), desc=f"HC chain {chain + 1}", disable=not progress):
-        for smp in hyper:
+        for d in range(p):
+            st = hyper[2 * d].step(st)
+            acc_mu[i, d] = hyper[2 * d]._last_accepted
+            st = hyper[2 * d + 1].step(st)
+            acc_sig[i, d] = hyper[2 * d + 1]._last_accepted
+        for e, smp in enumerate(x_samplers):
             st = smp.step(st)
-        for smp in x_samplers:
-            st = smp.step(st)
+            acc_X[i, e] = smp._last_accepted
 
         if shift["enabled"]:
             ll_old = total_loglik(st.X)
@@ -164,18 +177,35 @@ def run_chain(chain: int, likelihoods: list, case_ids: list, lower, upper, cfg: 
 
     return {"mu": mu_h, "sigma": sig_h, "X": X_h, "logpost": logpost,
             "acceptance_shift": acc_shift, "shift_std_final": shift_std,
+            "acceptance_mu": acc_mu, "acceptance_sigma": acc_sig, "acceptance_X": acc_X,
             "wall_clock_s": time.time() - t0, "seed": seed, "burnin": burnin, "nsteps": nsteps}
+
+
+def _run_chain_args(args):
+    return run_chain(*args)
 
 
 def run_hierarchical(likelihoods: list, case_ids: list, lower, upper, cfg: dict,
                      progress: bool = True) -> dict:
-    """Run ``n_chains`` independent chains (different seeds; dispersed starts if requested)."""
-    chains = [run_chain(c, likelihoods, case_ids, lower, upper, cfg, progress)
-              for c in range(int(cfg["hierarchical"]["n_chains"]))]
+    """Run ``n_chains`` independent chains (different seeds; dispersed starts if requested).
+
+    With ``parallel_chains`` the chains run in separate processes, one per CPU core.
+    """
+    h = cfg["hierarchical"]
+    n = int(h["n_chains"])
+    jobs = [(c, likelihoods, case_ids, lower, upper, cfg, progress) for c in range(n)]
+    workers = min(n, os.cpu_count() or 1)
+    if h.get("parallel_chains") and n > 1 and workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        print(f"Running {n} chains on {workers} CPU cores ...")
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            chains = list(pool.map(_run_chain_args, [j[:-1] + (False,) for j in jobs]))
+    else:
+        chains = [run_chain(*j) for j in jobs]
     stack = lambda k: np.stack([ch[k] for ch in chains])   # noqa: E731
-    return {"mu": stack("mu"), "sigma": stack("sigma"), "X": stack("X"),
-            "logpost": stack("logpost"), "acceptance_shift": stack("acceptance_shift"),
-            "shift_std_final": stack("shift_std_final"),
-            "wall_clock_s": np.array([ch["wall_clock_s"] for ch in chains]),
-            "seeds": np.array([ch["seed"] for ch in chains]),
-            "burnin": chains[0]["burnin"], "nsteps": chains[0]["nsteps"]}
+    out = {k: stack(k) for k in ("mu", "sigma", "X", "logpost", "acceptance_shift", "shift_std_final",
+                                 "acceptance_mu", "acceptance_sigma", "acceptance_X")}
+    out.update({"wall_clock_s": np.array([ch["wall_clock_s"] for ch in chains]),
+                "seeds": np.array([ch["seed"] for ch in chains]),
+                "burnin": chains[0]["burnin"], "nsteps": chains[0]["nsteps"]})
+    return out

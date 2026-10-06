@@ -47,8 +47,11 @@ def make_example(folder: Path, scalar: bool, n_train: int = 80, seed: int = 1):
     inputs = pd.DataFrame(X, columns=NAMES)
     inputs.insert(0, "eval_id", np.arange(1, n_train + 1))
 
-    # True values: population N(mu, sigma) for theta_1, theta_2; theta_3 fixed at 1
-    mu_true, sig_true = np.array([1.0, 0.9, 1.0]), np.array([0.12, 0.08, 0.0])
+    # True values: population N(mu, sigma); theta_3 fixed at 1
+    # (scalar QoI: one measurement per case, so only theta_1 varies between cases;
+    #  theta_2 is the same for all cases and is fixed in the configuration)
+    mu_true = np.array([1.0, 0.9, 1.0])
+    sig_true = np.array([0.12, 0.0, 0.0]) if scalar else np.array([0.12, 0.08, 0.0])
     cases, truth = {}, {}
     for cid in CONDITIONS:
         th = np.clip(mu_true + sig_true * rng.standard_normal(3), BOUNDS[:, 0] + 0.05, BOUNDS[:, 1] - 0.05)
@@ -63,7 +66,6 @@ def make_example(folder: Path, scalar: bool, n_train: int = 80, seed: int = 1):
 
     import h5py
     with h5py.File(folder / "data" / "synthetic_truth.h5", "w") as f:
-        f.create_dataset("population", data=mu_true)
         g = f.create_group("cases")
         for cid, th in truth.items():
             g.create_group(cid).create_dataset("theta", data=th)

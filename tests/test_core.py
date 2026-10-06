@@ -57,7 +57,7 @@ def test_results_roundtrip_never_overwrites(tmp_path):
 
 def test_default_config_loads():
     cfg = _default_config()
-    assert cfg["hierarchical"]["adaptation"]["type"] in ("acceptance_rate", "covariance")
+    assert cfg["hierarchical"]["adaptation"]["X"] in ("acceptance_rate", "covariance")
     assert isinstance(cfg["surrogate"]["kernel"]["length_scale_bounds"][1], float)
 
 

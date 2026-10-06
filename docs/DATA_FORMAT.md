@@ -66,12 +66,16 @@ values are overlaid on the posterior comparison plots.
 
 ```
 synthetic_truth.h5
-├── population    (p,)   float   OPTIONAL — true population-level values
-│                                (hierarchical calibration)
 └── cases/
       └── <case_id>/
-            theta  (p,)  float   true parameter values of this case
+            theta  (p,)  float   true parameter values of this case (all parameters)
 ```
+
+The plots mark the true values of the calibration cases (filled) and of
+the validation cases (open). With
+`postprocessing.show_reference_population: true` they also draw the
+normal distribution with the mean and standard deviation of the true
+values of the calibration cases.
 
 Parameter order follows `config.yaml`. Case identifiers must match
 those in `input_data.h5`.

@@ -4,8 +4,12 @@ Original author: Gustav Robertson (created 8 Oct 2024).
 Changes for abcf:
   * class ``adapt_covariance_matrix_old`` (superseded) removed;
   * ``adapt_acceptance_rate``: new optional keywords ``adapt_start``,
-    ``adapt_rate`` and ``target_acceptance_rate``. Their defaults (1,
-    0.01, 0.44) reproduce the original behaviour exactly;
+    ``adapt_rate``, ``target_acceptance_rate`` and ``window``. Their
+    defaults (1, 0.01, 0.44, None) reproduce the original behaviour
+    exactly. ``window = n`` uses the acceptance rate of the last n steps
+    instead of the cumulative one, which reacts faster: the cumulative
+    rate keeps the memory of the first steps and makes the scale
+    overshoot;
   * ``np.concat`` replaced by ``np.concatenate`` (works with NumPy < 2).
 
 Covariance adaptation: adaptive Metropolis of Haario, Saksman &
@@ -132,12 +136,23 @@ class adapt_acceptance_rate:
         self.adapt_start = kwargs.get('adapt_start', 1)
         self.adapt_rate = kwargs.get('adapt_rate', 0.01)
         self.target_acceptance_rate = kwargs.get('target_acceptance_rate', 0.44)
+        # None: cumulative acceptance rate (original); n: last n steps
+        self.window = kwargs.get('window', None)
+        self._recent = []
 
     def __call__(self, sampler, proposal, state):
         sample_number = sampler._sample_number
 
+        if self.window:
+            self._recent.append(sampler._last_accepted)
+            if len(self._recent) > self.window:
+                self._recent.pop(0)
+
         # Adapt only inside the adaptation window
         if self.adapt_start <= sample_number <= self.burnin:
-            current_acceptance_rate = sampler.get_acceptancerate()
+            if self.window:
+                current_acceptance_rate = np.mean(self._recent)
+            else:
+                current_acceptance_rate = sampler.get_acceptancerate()
             proposal.adaptation_factor *= np.exp(
                 self.adapt_rate * (current_acceptance_rate - self.target_acceptance_rate))

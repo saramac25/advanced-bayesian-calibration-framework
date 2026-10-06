@@ -93,8 +93,12 @@ def _check(cfg: dict) -> None:
     h = cfg["hierarchical"]
     if not 0 < h["burnin_fraction"] < 1:
         raise ConfigError("hierarchical.burnin_fraction must be in (0, 1).")
-    if h["adaptation"]["type"] not in ("acceptance_rate", "covariance"):
-        raise ConfigError("hierarchical.adaptation.type must be 'acceptance_rate' or 'covariance'.")
+    for block in ("mu", "sigma", "X"):
+        if h["adaptation"][block] not in ("acceptance_rate", "covariance"):
+            raise ConfigError(f"hierarchical.adaptation.{block} must be 'acceptance_rate' or 'covariance'.")
+    if "type" in h["adaptation"]:
+        raise ConfigError("hierarchical.adaptation.type was replaced by one entry per block: "
+                          "adaptation: {mu: ..., sigma: ..., X: ...}.")
     if h["adaptation"]["start"] >= h["nsteps"] * h["burnin_fraction"]:
         raise ConfigError("hierarchical.adaptation.start must come before the end of the burn-in.")
 

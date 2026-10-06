@@ -9,14 +9,15 @@ elementary effects, before the training samples are generated.
   Dakota backend: run Dakota with workflows/templates/dakota_morris.in, then
                   python workflows/01_sensitivity_morris.py config.yaml --dakota-tabular dakota_morris.dat
 
-Output: results/sensitivity/morris_<case>.csv (mu*, mu, sigma per parameter).
+Output: results/sensitivity/morris_<case>.csv (mu*, mu, sigma per parameter) and
+figs/morris_<case>.png (mu* against sigma).
 """
 
 import importlib.util
 from pathlib import Path
 
 from abcf.config import load_config, output_dir, resolve_path
-from abcf.sensitivity.morris import run_morris_dakota, run_morris_salib
+from abcf.sensitivity.morris import plot_morris, run_morris_dakota, run_morris_salib
 from abcf.workflow import parse_args
 
 
@@ -41,6 +42,7 @@ def main():
     if len(bounds) != len(cfg["parameters"]) or not bounds:
         raise ValueError("Morris needs parameters.<name>.bounds for every parameter.")
     out = output_dir(cfg, "sensitivity")
+    figs = output_dir(cfg, "sensitivity", "figs")
 
     if args.dakota_tabular or m["backend"] == "dakota":
         if not args.dakota_tabular:
@@ -49,6 +51,7 @@ def main():
                                         m["dakota_response_names"])
         name = Path(args.dakota_tabular).stem
         table.to_csv(out / f"morris_{name}.csv", index=False)
+        plot_morris(table, f"Morris - {name}", figs / f"morris_{name}.png")
         print(table.to_string(index=False))
         return
 
@@ -61,6 +64,7 @@ def main():
         table, design, Y = run_morris_salib(model, cid, bounds, m, resolve_path(cfg, m["run_dir"]),
                                             seed=int(cfg["project"]["seed"]))
         table.to_csv(out / f"morris_{cid}.csv", index=False)
+        plot_morris(table, f"Morris - {cid}", figs / f"morris_{cid}.png")
         print(f"\nMorris - case {cid}\n{table.to_string(index=False)}")
 
 

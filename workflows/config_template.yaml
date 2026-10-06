@@ -101,21 +101,33 @@ standard:
 # -----------------------------------------------------------------------------
 hierarchical:
   n_chains: 4
+  parallel_chains: true        # run the chains at the same time on several CPU cores
   nsteps: 50000
   burnin_fraction: 0.5         # the proposal adaptation stops at the end of the burn-in
   dispersed_init: true         # chains 2..N start from random points in the prior
   initial_sigma: 0.5           # starting population std (standardised units)
   sigma_upper_bound: 10.0      # uniform prior on sigma: (0, sigma_upper_bound]
   adaptation:
-    type: covariance           # acceptance_rate | covariance (Haario et al., 2001)
+    # Per block: acceptance_rate (scale tuned towards a target acceptance) or
+    # covariance (adaptive Metropolis, Haario et al., 2001)
+    mu: acceptance_rate
+    sigma: acceptance_rate
+    X: covariance
     start: 2000                # iteration at which the adaptation starts (both types)
+    rate: 0.05                 # acceptance_rate only: scale *= exp(rate * (AR - target)) each step
+    window: 100                # acceptance_rate only: AR over the last `window` steps;
+                               # null -> cumulative AR since the start (original algorithm)
+    target_acceptance:         # acceptance_rate only
+      mu: 0.44                 # 1D blocks: 0.44 (Roberts & Rosenthal, 2001)
+      sigma: 0.44
+      X: 0.234                 # multi-dimensional block: 0.234 (Roberts et al., 1997)
     proposal_update_start: 4000  # covariance only: first update of the proposal
     s_d: null                  # covariance only: scaling; null -> 2.4^2 / d (Haario et al., 2001)
     epsilon: 1.0e-10           # covariance only: regularisation
   initial_proposal_variance:   # standardised units
     mu: 0.5
     sigma: 0.5
-    X: 1.0e-6
+    X: 1.0e-2                  # very peaked likelihoods may need much smaller values
   fixed_proposal_cov: {}       # optional, per case: fixed proposal covariance for X,
                                # no adaptation (see docs/CONFIG.md)
   joint_shift_move:
@@ -132,8 +144,9 @@ diagnostics:
   rhat_max: 1.01
   ess_per_chain: 100           # ESS >= ess_per_chain * number of chains (or walkers)
   mcse_over_std_max: null      # optional threshold on MCSE/sigma; null -> reported only
-  acceptance_range_standard: [0.2, 0.5]
-  acceptance_range_hierarchical: [0.15, 0.7]
+  acceptance_range_standard: [0.2, 0.5]   # emcee (Foreman-Mackey et al., 2013)
+  acceptance_range_1d: [0.3, 0.6]         # hierarchical: mu_d, sigma_d blocks (and X if 1 parameter)
+  acceptance_range_X: [0.15, 0.5]         # hierarchical: X blocks with several parameters
   collapse_ratio: 0.05         # adaptation collapse if late AR < this while earlier AR > 0.15
 
 # -----------------------------------------------------------------------------
@@ -142,6 +155,8 @@ diagnostics:
 postprocessing:
   mode: both                   # standard | hierarchical | both
   n_posterior_samples: 2000    # draws used for predictive plots
+  show_reference_population: false  # synthetic only: draw N(mean, std) of the true values
+                                    # of the calibration cases (as in the thesis figures)
 
 validation:
   run: false

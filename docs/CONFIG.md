@@ -51,15 +51,22 @@ hierarchical calibration, so that the two methods stay comparable.
 
 * `burnin_fraction`: the proposal adaptation stops at the end of the
   burn-in, so the samples kept are from a fixed (valid) Markov kernel.
-* `adaptation.type`
+* `adaptation.mu`, `adaptation.sigma`, `adaptation.X`: adaptation of each
+  type of block, `acceptance_rate` or `covariance`:
   * `acceptance_rate`: the proposal scale is multiplied by
-    `exp(0.01 (AR - 0.44))` at each step, from `adaptation.start` to the
-    end of the burn-in;
+    `exp(0.01 (AR - target))` at each step, from `adaptation.start` to the
+    end of the burn-in; targets in `adaptation.target_acceptance`
+    (0.44 for the 1D blocks mu_d and sigma_d, 0.234 for X with several
+    parameters);
   * `covariance`: adaptive Metropolis (Haario et al., 2001). From
     `adaptation.start` the empirical covariance of the block is
     accumulated, and from `proposal_update_start` the proposal
     covariance becomes `s_d (C + epsilon I)`. `s_d: null` uses
-    `2.4^2 / d`.
+    `2.4^2 / d`. For mu_d and sigma_d this estimates the covariance of the
+    marginal chain, wider than the conditional one used in a Gibbs step,
+    which is why `acceptance_rate` is the default for these blocks.
+* `parallel_chains: true`: the chains run at the same time, one per CPU
+  core (the progress bars are then hidden).
 * `initial_proposal_variance`: starting proposal variances (standardised
   units) for the `mu`, `sigma` and `X` blocks.
 * `dispersed_init`: chain 1 starts at the centre of the prior range,
@@ -96,7 +103,16 @@ is adapted towards `target_acceptance` during the burn-in only.
 
 ## Diagnostics
 
-R-hat < `rhat_max`; bulk ESS >= `ess_per_chain` x number of chains (or
-walkers); MCSE/sigma by overlapping batch means (reported; checked only
-if `mcse_over_std_max` is set); acceptance in the given range. The MCSE
-divides by the draws of one chain (conservative choice).
+Criteria: R-hat < `rhat_max`; bulk ESS >= `ess_per_chain` x number of
+chains (or walkers); acceptance rate inside the range of the block
+(`acceptance_range_standard` for emcee, `acceptance_range_1d` for mu_d
+and sigma_d, `acceptance_range_X` for X with several parameters);
+MCSE/sigma by overlapping batch means, checked only if
+`mcse_over_std_max` is set. The MCSE divides by the draws of one chain
+(conservative choice).
+
+The hierarchical table has one row per block: mu_d, sigma_d and X[case, d].
+The acceptance of each block is recorded by its own sampler at every
+step, so it is not affected by the joint shift move (whose acceptance is
+reported separately). Every failed criterion is followed by a
+SUGGESTION, e.g. which option to change and by how much.

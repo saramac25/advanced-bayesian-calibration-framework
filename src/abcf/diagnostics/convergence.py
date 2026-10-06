@@ -10,8 +10,14 @@
 
 from __future__ import annotations
 
-import arviz as az
+import warnings
+
 import numpy as np
+
+with warnings.catch_warnings():
+    # ArviZ announces an API refactor at import time; the wrappers below handle both APIs.
+    warnings.simplefilter("ignore", FutureWarning)
+    import arviz as az
 
 
 def _rhat(x: np.ndarray) -> float:

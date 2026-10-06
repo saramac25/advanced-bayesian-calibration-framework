@@ -28,7 +28,7 @@ surrogate:
   n_restarts_optimizer: 2
 
 standard:
-  stretch_a: 3.0
+  stretch_a: 5.0
   walker_multipliers: [4]
   nsteps_list: [6000]
 

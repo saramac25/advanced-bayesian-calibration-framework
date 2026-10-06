@@ -1,0 +1,151 @@
+# =============================================================================
+#  Advanced Bayesian Calibration Framework - configuration file
+# =============================================================================
+#  Copy this file next to your data, edit it, and pass it to every workflow
+#  script:   python workflows/05_run_hierarchical.py my_config.yaml
+#
+#  Every option not written here takes the default value shown in this
+#  template. Parameter values are always given in PHYSICAL units: the
+#  framework standardises the inputs internally.
+# =============================================================================
+
+project:
+  name: my_study
+  output_dir: results          # all outputs go here; existing files are never deleted
+  seed: 42                     # master seed: every random step derives from it
+
+# -----------------------------------------------------------------------------
+#  Data (format described in docs/DATA_FORMAT.md)
+# -----------------------------------------------------------------------------
+data:
+  input_file: data/input_data.h5
+  calibration_cases: all       # "all" or a list of case ids, e.g. [case_01, case_04]
+  validation_cases: []         # case ids excluded from calibration, used in step 08
+
+# Synthetic study: when true, the true values in `synthetic_truth_file`
+# are overlaid on the posterior plots.
+synthetic: false
+synthetic_truth_file: data/synthetic_truth.h5
+
+# -----------------------------------------------------------------------------
+#  Model parameters
+#  One entry per parameter column of `inputs` in input_data.h5 (same names).
+#    calibrate: true  -> inferred
+#    calibrate: false -> fixed at `fixed_value` (physical units)
+#    bounds           -> sampling range, needed only by the Morris screening (step 01)
+# -----------------------------------------------------------------------------
+parameters:
+  theta_1: {calibrate: true,  bounds: [0.5, 1.5]}
+  theta_2: {calibrate: true,  bounds: [0.5, 1.5]}
+  theta_3: {calibrate: false, fixed_value: 1.0, bounds: [0.5, 1.5]}
+
+# -----------------------------------------------------------------------------
+#  Measurement uncertainty (relative): sigma = relative * |measured value|
+# -----------------------------------------------------------------------------
+measurement_noise:
+  relative: 0.01               # 1% of the measured value
+  per_case: {}                 # optional overrides, e.g. {case_03: 0.02}
+
+# -----------------------------------------------------------------------------
+#  Step 01-02: sensitivity and correlation analysis
+# -----------------------------------------------------------------------------
+sensitivity:
+  morris:
+    backend: salib             # salib | dakota
+    model: null                # salib backend: "my_solver.py:MySolver" (a ModelInterface subclass)
+    cases: all                 # cases on which the model is run ("all" or a list)
+    num_trajectories: 20
+    num_levels: 4
+    run_dir: runs/morris       # one sub-folder per model evaluation
+    dakota_response_names: [qoi]   # dakota backend: response columns of the tabular file
+  correlation:
+    alpha: 0.05                # significance level of the Spearman tests
+    fdr_method: fdr_bh         # correction for multiple tests (Benjamini-Hochberg)
+    effect_size_threshold: 0.1 # input-output: |rho| below this is "negligible"
+    redundancy_threshold: 0.98 # output-output: |rho| above this -> redundant cases
+
+# -----------------------------------------------------------------------------
+#  Step 03: Gaussian Process surrogates (one set of GPs per case)
+# -----------------------------------------------------------------------------
+surrogate:
+  test_fraction: 0.2           # share of the solver runs kept for GP testing
+  pca_variance: 0.99           # time-dependent QoI only: retained explained variance
+  kernel:
+    terms: [rbf]               # any of: rbf, matern, rational_quadratic
+    combine: sum               # sum | product (used when several terms are listed)
+    matern_nu: 1.5
+    white_noise: false         # add a WhiteKernel term
+    length_scale_bounds: [1.0e-3, 1.0e+5]
+  alpha_grid: [10, 5, 2, 1, 0.1, 0.01, 0.001, 0.0001]   # nugget chosen by CV; null -> alpha_fixed
+  alpha_fixed: 1.0e-2
+  n_restarts_optimizer: 5
+  refit_on_bound: true         # refit with wider bounds if the optimiser hits a bound
+  relaxed_length_scale_bounds: [1.0e-5, 1.0e+9]
+
+# Include the GP predictive variance in the likelihood (standard AND hierarchical).
+likelihood:
+  include_gp_variance: true
+
+# -----------------------------------------------------------------------------
+#  Step 04: standard calibration (emcee, affine-invariant ensemble sampler)
+# -----------------------------------------------------------------------------
+standard:
+  stretch_a: 2.0               # emcee StretchMove scale; raise it if acceptance is too high
+  walker_multipliers: [2, 4, 6, 8]       # tuning step 1: nwalkers = multiplier * n_calibrated
+  nsteps_tuning: 10000                   # steps per walker in tuning step 1
+  nsteps_list: [1000, 5000, 10000, 20000] # tuning step 2: steps per walker
+  burnin_fraction: 0.5
+
+# -----------------------------------------------------------------------------
+#  Step 05: hierarchical calibration (MH-within-Gibbs)
+# -----------------------------------------------------------------------------
+hierarchical:
+  n_chains: 4
+  nsteps: 50000
+  burnin_fraction: 0.5         # the proposal adaptation stops at the end of the burn-in
+  dispersed_init: true         # chains 2..N start from random points in the prior
+  initial_sigma: 0.5           # starting population std (standardised units)
+  sigma_upper_bound: 10.0      # uniform prior on sigma: (0, sigma_upper_bound]
+  adaptation:
+    type: covariance           # acceptance_rate | covariance (Haario et al., 2001)
+    start: 2000                # iteration at which the adaptation starts (both types)
+    proposal_update_start: 4000  # covariance only: first update of the proposal
+    s_d: null                  # covariance only: scaling; null -> 2.4^2 / d (Haario et al., 2001)
+    epsilon: 1.0e-10           # covariance only: regularisation
+  initial_proposal_variance:   # standardised units
+    mu: 0.5
+    sigma: 0.5
+    X: 1.0e-6
+  fixed_proposal_cov: {}       # optional, per case: fixed proposal covariance for X,
+                               # no adaptation (see docs/CONFIG.md)
+  joint_shift_move:
+    enabled: false             # joint move of mu_d and all X[:, d] by the same shift
+    initial_std: 0.1           # standardised units
+    target_acceptance: 0.44
+    adapt_every: 100
+  store_logpost: true          # joint log-posterior at every iteration (one extra GP call per case)
+
+# -----------------------------------------------------------------------------
+#  Step 06: convergence diagnostics
+# -----------------------------------------------------------------------------
+diagnostics:
+  rhat_max: 1.01
+  ess_per_chain: 100           # ESS >= ess_per_chain * number of chains (or walkers)
+  mcse_over_std_max: null      # optional threshold on MCSE/sigma; null -> reported only
+  acceptance_range_standard: [0.2, 0.5]
+  acceptance_range_hierarchical: [0.15, 0.7]
+  collapse_ratio: 0.05         # adaptation collapse if late AR < this while earlier AR > 0.15
+
+# -----------------------------------------------------------------------------
+#  Step 07-08: post-processing and validation
+# -----------------------------------------------------------------------------
+postprocessing:
+  mode: both                   # standard | hierarchical | both
+  n_posterior_samples: 2000    # draws used for predictive plots
+
+validation:
+  run: false
+  files:                       # solver re-runs with posterior samples (docs/DATA_FORMAT.md)
+    SC: data/validation_SC.h5
+    HC: data/validation_HC.h5
+  interval_level: 0.95

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "abcf"
+version = "0.1.0"
+description = "Advanced Bayesian Calibration Framework: sensitivity analysis, Gaussian Process surrogates, PCA for time-dependent outputs, standard and hierarchical (MH-within-Gibbs) Bayesian calibration."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "Sara Maccario" },
+  { name = "Gustav Robertson" },
+]
+dependencies = [
+  "numpy>=1.22",
+  "scipy>=1.8",
+  "pandas>=1.4",
+  "scikit-learn>=1.1",
+  "h5py>=3.6",
+  "pyyaml>=6.0",
+  "emcee>=3.1",
+  "arviz>=0.15",
+  "SALib>=1.4",
+  "statsmodels>=0.13",
+  "matplotlib>=3.5",
+  "tqdm>=4.60",
+]
+
+[project.optional-dependencies]
+plots = ["corner>=2.2", "seaborn>=0.12"]
+test = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+abcf = ["*.yaml", "calibration/hierarchical/mhwg/README.md"]

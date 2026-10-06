@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Spyder / IDE
+.spyproject/
+.vscode/
+.idea/
+
+# Results and data produced by the workflows: never committed
+results/
+runs/
+*.p
+*.pkl
+*.pickle
+
+# User data: never committed (keep only the templates in data_templates/)
+data/
+*.h5
+*.hdf5
+!data_templates/*.h5
+
+# OS
+.DS_Store
+Thumbs.db

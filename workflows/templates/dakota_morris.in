@@ -1,0 +1,36 @@
+# -----------------------------------------------------------------------------
+#  Dakota input template: Morris screening (method psuade_moat)
+#  Adapt the variables block to your parameters (same names and bounds as
+#  in config.yaml) and the interface block to your solver driver.
+#  Dakota manual: https://snl-dakota.github.io
+#  After the run, analyse with:
+#     python workflows/01_sensitivity_morris.py config.yaml --dakota-tabular dakota_morris.dat
+# -----------------------------------------------------------------------------
+environment
+  tabular_data
+    tabular_data_file = 'dakota_morris.dat'
+
+method
+  psuade_moat
+    samples = 60          # = num_trajectories * (number of parameters + 1)
+    partitions = 3        # = num_levels - 1
+    seed = 42
+
+variables
+  continuous_design = 3
+    descriptors   'theta_1'  'theta_2'  'theta_3'
+    lower_bounds   0.5        0.5        0.5
+    upper_bounds   1.5        1.5        1.5
+
+interface
+  analysis_drivers = 'run_my_solver.sh'
+    fork
+    work_directory named 'runs/morris/eval' directory_tag directory_save
+  parameters_file = 'params.in'
+  results_file    = 'results.out'
+
+responses
+  response_functions = 1
+    descriptors 'qoi'
+  no_gradients
+  no_hessians

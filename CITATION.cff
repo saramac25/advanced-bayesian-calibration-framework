@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below, together with the references listed."
+title: "Advanced Bayesian Calibration Framework"
+version: 0.1.0
+authors:
+  - family-names: Maccario
+    given-names: Sara
+    affiliation: "Paul Scherrer Institut (PSI); EPFL"
+  - family-names: Robertson
+    given-names: Gustav
+    # Author of the hierarchical MH-within-Gibbs sampler (src/abcf/calibration/hierarchical/mhwg)
+repository-code: "https://github.com/saramac25/advanced-bayesian-calibration-framework"
+keywords:
+  - Bayesian calibration
+  - hierarchical model
+  - Markov chain Monte Carlo
+  - Gaussian process
+  - principal component analysis
+  - sensitivity analysis
+  - uncertainty quantification
+# references: to be completed with the PhD thesis (EPFL) and Robertson et al. (2025)

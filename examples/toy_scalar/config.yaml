@@ -1,0 +1,42 @@
+project:
+  name: toy_scalar
+  output_dir: results
+  seed: 42
+
+data:
+  input_file: data/input_data.h5
+  validation_cases: [case_06]
+
+synthetic: true
+synthetic_truth_file: data/synthetic_truth.h5
+
+parameters:
+  theta_1: {calibrate: true,  bounds: [0.5, 1.5]}
+  theta_2: {calibrate: true,  bounds: [0.5, 1.5]}
+  theta_3: {calibrate: false, fixed_value: 1.0, bounds: [0.5, 1.5]}
+
+measurement_noise:
+  relative: 0.01
+
+sensitivity:
+  morris:
+    model: ../toy_model.py:ToyModel
+    num_trajectories: 10
+
+surrogate:
+  alpha_grid: [1.0e-2, 1.0e-4, 1.0e-6]
+  n_restarts_optimizer: 2
+
+standard:
+  stretch_a: 3.0
+  walker_multipliers: [4]
+  nsteps_list: [6000]
+
+hierarchical:
+  n_chains: 2
+  nsteps: 6000
+  joint_shift_move: {enabled: true}
+  adaptation: {start: 300, proposal_update_start: 600}
+
+diagnostics:
+  ess_per_chain: 50

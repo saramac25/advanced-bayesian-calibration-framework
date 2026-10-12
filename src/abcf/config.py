@@ -36,8 +36,9 @@ def _merge(default: dict, user: dict, path: str = "") -> dict:
         where = f"{path}.{key}" if path else key
         if key not in default:
             # Free-form blocks: their keys are case ids or parameter names.
-            if path not in ("parameters", "measurement_noise.per_case",
-                            "hierarchical.fixed_proposal_cov", "validation.files"):
+            if path not in ("parameters", "labels", "measurement_noise.per_case",
+                            "hierarchical.fixed_proposal_cov", "validation.files",
+                            "surrogate.kernel_candidates"):
                 warnings.warn(f"Unknown configuration key '{where}' (ignored by the defaults "
                               "check, please verify the spelling).", stacklevel=3)
             out[key] = value
@@ -57,6 +58,40 @@ def load_config(path: str | Path) -> dict:
     cfg["_config_dir"] = str(path.resolve().parent)
     _check(cfg)
     return cfg
+
+
+def normal_prior_std(cfg: dict, names: list, scaler, idx: list):
+    """Normal priors of the calibrated parameters in standardised units.
+
+    ``parameters.<name>.prior: {type: normal, mean: m, std: s}`` (physical units) ->
+    (mean_s, std_s) arrays over the calibrated parameters, NaN where the prior is the
+    default uniform over the training range. The normal prior is truncated to that range.
+    Returns None if no calibrated parameter has a normal prior.
+    """
+    spec = cfg.get("parameters") or {}
+    m = np.full(len(idx), np.nan)
+    s = np.full(len(idx), np.nan)
+    for j, k in enumerate(idx):
+        pr = (spec.get(names[k]) or {}).get("prior") or {}
+        if pr.get("type") == "normal":
+            m[j] = (float(pr["mean"]) - scaler.mean[k]) / scaler.std[k]
+            s[j] = float(pr["std"]) / scaler.std[k]
+    return None if np.all(np.isnan(s)) else (m, s)
+
+
+def normal_logprior(x, prior) -> float:
+    """Sum of the normal log-priors (standardised units); 0 for uniform components."""
+    if prior is None:
+        return 0.0
+    m, s = prior
+    ok = ~np.isnan(s)
+    z = (np.asarray(x, dtype=float)[ok] - m[ok]) / s[ok]
+    return float(-0.5 * np.sum(z * z))
+
+
+def param_label(cfg: dict, name: str) -> str:
+    """Display name of a parameter in the figures (``labels`` block), or its name."""
+    return (cfg.get("labels") or {}).get(name, name)
 
 
 def resolve_path(cfg: dict, value: str | Path) -> Path:
@@ -85,6 +120,14 @@ def _check(cfg: dict) -> None:
             raise ConfigError(f"parameters.{name}: write at least {{calibrate: true/false}}.")
         if not spec["calibrate"] and spec.get("fixed_value") is None:
             raise ConfigError(f"parameters.{name}: calibrate is false, so fixed_value is required.")
+        pr = spec.get("prior")
+        if pr is not None:
+            if not spec["calibrate"]:
+                raise ConfigError(f"parameters.{name}.prior: only calibrated parameters have a prior.")
+            if pr.get("type") not in ("uniform", "normal"):
+                raise ConfigError(f"parameters.{name}.prior.type must be 'uniform' or 'normal'.")
+            if pr["type"] == "normal" and not (float(pr.get("std", 0)) > 0 and "mean" in pr):
+                raise ConfigError(f"parameters.{name}.prior: a normal prior needs mean and std > 0.")
         if spec.get("bounds") is not None:
             lo, hi = spec["bounds"]
             if not lo < hi:
@@ -99,8 +142,10 @@ def _check(cfg: dict) -> None:
     if "type" in h["adaptation"]:
         raise ConfigError("hierarchical.adaptation.type was replaced by one entry per block: "
                           "adaptation: {mu: ..., sigma: ..., X: ...}.")
-    if h["adaptation"]["start"] >= h["nsteps"] * h["burnin_fraction"]:
-        raise ConfigError("hierarchical.adaptation.start must come before the end of the burn-in.")
+    for n in (h.get("nsteps_list") or [h["nsteps"]]):
+        if h["adaptation"]["start"] >= n * h["burnin_fraction"] - int(h["adaptation"]["stop_before_burnin_end"]):
+            raise ConfigError(f"hierarchical.adaptation.start must come before the end of the adaptation "
+                              f"(burn-in - stop_before_burnin_end) for nsteps = {n}.")
 
     s = cfg["standard"]
     if not 0 < s["burnin_fraction"] < 1:
@@ -121,11 +166,17 @@ def _check(cfg: dict) -> None:
 
 @dataclass
 class ParameterSetup:
-    """Split of the model parameters into calibrated and fixed ones."""
+    """Split of the model parameters into calibrated and fixed ones.
+
+    ``case_fixed`` optionally overrides ``fixed_values`` for single cases
+    (``data.fixed_values_file``): e.g. a non-calibrated parameter known to
+    take a different value in every experiment.
+    """
 
     names: list            # all parameter names, in the order of the data file
     calibrated_idx: list   # indices (into `names`) of the calibrated parameters
     fixed_values: dict     # name -> fixed value (physical units)
+    case_fixed: dict = None  # case_id -> {name: fixed value} (physical units), optional
 
     @property
     def calibrated_names(self) -> list:
@@ -135,13 +186,25 @@ class ParameterSetup:
     def n_calibrated(self) -> int:
         return len(self.calibrated_idx)
 
-    def full_vector(self, calibrated_values: np.ndarray) -> np.ndarray:
-        """Physical full parameter vector(s) from calibrated values (physical)."""
+    def fixed_for(self, case_id=None) -> dict:
+        """Fixed values of one case (case-specific values override the common ones)."""
+        out = dict(self.fixed_values)
+        if case_id is not None and self.case_fixed and case_id in self.case_fixed:
+            out.update(self.case_fixed[case_id])
+        return out
+
+    def full_vector(self, calibrated_values: np.ndarray, case_id=None) -> np.ndarray:
+        """Physical full parameter vector(s) from calibrated values (physical).
+
+        With ``case_id``, the fixed parameters take the values of that case
+        (``data.fixed_values_file``) when they are given.
+        """
         calibrated_values = np.atleast_2d(calibrated_values)
+        fixed = self.fixed_for(case_id)
         out = np.empty((calibrated_values.shape[0], len(self.names)))
         for j, name in enumerate(self.names):
             if j not in self.calibrated_idx:
-                out[:, j] = self.fixed_values[name]
+                out[:, j] = fixed[name]
         out[:, self.calibrated_idx] = calibrated_values
         return out
 
@@ -163,7 +226,48 @@ def parameter_setup(cfg: dict, data_param_names: list) -> ParameterSetup:
     if not calibrated:
         raise ConfigError("At least one parameter must have calibrate: true.")
     fixed = {n: float(spec[n]["fixed_value"]) for n in data_param_names if not spec[n]["calibrate"]}
-    return ParameterSetup(list(data_param_names), calibrated, fixed)
+    return ParameterSetup(list(data_param_names), calibrated, fixed,
+                          _case_fixed_values(cfg, [n for n in data_param_names if not spec[n]["calibrate"]]))
+
+
+def _case_fixed_values(cfg: dict, fixed_names: list) -> dict | None:
+    """Read ``data.fixed_values_file``: CSV with a column ``case`` and one column per
+    non-calibrated parameter whose value changes from case to case (physical units).
+    Parameters not listed keep their common ``fixed_value``."""
+    f = cfg["data"].get("fixed_values_file")
+    if not f:
+        return None
+    import pandas as pd
+    path = resolve_path(cfg, f)
+    if not path.exists():
+        raise ConfigError(f"data.fixed_values_file not found: {path}")
+    df = pd.read_csv(path)
+    if "case" not in df.columns:
+        raise ConfigError(f"{path}: a column `case` is required.")
+    cols = [c for c in df.columns if c != "case"]
+    wrong = [c for c in cols if c not in fixed_names]
+    if wrong:
+        raise ConfigError(f"{path}: columns {wrong} are not non-calibrated parameters "
+                          f"(non-calibrated: {fixed_names}).")
+    return {str(r["case"]): {c: float(r[c]) for c in cols} for _, r in df.iterrows()}
+
+
+def validation_case_list(cfg: dict) -> list:
+    """``data.validation_cases``: a list of case ids, or the path of a CSV with
+    columns ``case`` and ``set`` (rows with set == "validation" are used), e.g. the
+    split written by step 02 (``results/correlation/validation_split.csv``)."""
+    v = cfg["data"]["validation_cases"]
+    if not v:
+        return []
+    if isinstance(v, str):
+        import pandas as pd
+        path = resolve_path(cfg, v)
+        if not path.exists():
+            raise ConfigError(f"data.validation_cases: file not found: {path} "
+                              "(run step 02 first if it is the split written by it).")
+        df = pd.read_csv(path)
+        return [str(c) for c in df.loc[df["set"] == "validation", "case"]]
+    return [str(c) for c in v]
 
 
 def case_noise(cfg: dict, case_id: str) -> float:

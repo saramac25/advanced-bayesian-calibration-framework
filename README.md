@@ -54,13 +54,13 @@ h5py, emcee, ArviZ, SALib, statsmodels, matplotlib.
 | Step | Script | What it does | Output (in `results/`) |
 |---|---|---|---|
 | 01 | `01_sensitivity_morris.py` | Morris screening with the model itself (SALib + your `ModelInterface`, or a Dakota run) | `sensitivity/` |
-| 02 | `02_correlation_analysis.py` | Spearman input-output and output-output correlation (BH-FDR), redundancy groups | `correlation/` |
-| 03 | `03_train_surrogates.py` | GPs per case (PCA for a time-dependent QoI), test on held-out runs | `surrogates/` |
+| 02 | `02_correlation_analysis.py` | Spearman input-output and output-output correlation (BH-FDR), redundancy groups, optional validation split | `correlation/` |
+| 03 | `03_train_surrogates.py` | GPs per case (PCA for a time-dependent QoI), test on test runs; optional kernel comparison | `surrogates/` |
 | 04 | `04_run_standard.py` | standard calibration (emcee), walkers and steps tuned | `calibration/SC_*.h5` |
 | 05 | `05_run_hierarchical.py` | hierarchical calibration (MH-within-Gibbs), several chains | `calibration/HC_*.h5` |
 | 06 | `06_diagnostics.py` | R-hat, ESS, MCSE/sigma, acceptance, wall clock, adaptation collapse | `diagnostics/` |
 | 07 | `07_postprocessing.py` | posterior summaries and plots: standard, hierarchical or both | `postprocessing/` |
-| 08 | `08_validation.py` | z-scores, coverage, RMSE from solver re-runs with posterior samples | `validation/` |
+| 08 | `08_validation.py` | z-scores, coverage, RMSE from solver re-runs with posterior samples, or chi2_E / chi2_tot through the GPs of the validation cases | `validation/` |
 
 Run the whole chain with one command (main entry point):
 
@@ -93,7 +93,7 @@ To let the framework run your model (Morris screening), implement the
 three methods of `abcf.model_interface.ModelInterface`: write the input
 file, execute the solver, read the QoI.
 
-## Example
+## Examples
 
 An analytic toy model with six "experiments" exercises the whole
 workflow in a few minutes:
@@ -102,6 +102,12 @@ workflow in a few minutes:
 python examples/toy_model.py                 # writes the example data
 python examples/run_all.py toy_scalar        # or toy_time_dependent
 ```
+
+`examples/thesis_ch5_offbeat/` contains the scalar case studies of
+Chapter 5 of the thesis (130 fuel rods simulated with OFFBEAT, synthetic
+experiments with known true parameters: epistemic uncertainty, aleatoric
+uncertainty, model bias), with their data and one script that runs them
+and draws the figures; see its README.
 
 ## Citing
 

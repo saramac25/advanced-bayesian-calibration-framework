@@ -1,0 +1,56 @@
+# =============================================================================
+#  Chapter 5 - common steps of the three scalar case studies (FCT at EOL, OFFBEAT)
+#    step 02: correlation between rods and validation split (6 rods)
+#    step 03: kernel comparison and GP training (one GP per rod, 5 parameters)
+#  The GPs and the split do not depend on the measurements: they are computed
+#  once here and shared by config_epistemic/aleatoric/modelbias.yaml.
+# =============================================================================
+project:
+  name: ch5_common
+  output_dir: results/common
+  seed: 2026
+
+data:
+  input_file: data/input_data_A.h5    # only the training runs are used here
+
+# Calibration status is irrelevant for steps 02-03; the GPs use all 5 parameters.
+parameters:
+  UO2_rho:               {calibrate: false, fixed_value: 1.0}
+  UO2_k:                 {calibrate: true}
+  UO2_alphaT:            {calibrate: true}
+  UO2_epsilonRelocation: {calibrate: false, fixed_value: 1.0}
+  UO2_epsilonSwelling:   {calibrate: false, fixed_value: 1.0}
+
+labels:                      # display names in the figures
+  UO2_rho: 'UO$_2$ $\rho$'
+  UO2_k: 'UO$_2$ $k$'
+  UO2_alphaT: 'UO$_2$ $\alpha_T$'
+  UO2_epsilonRelocation: 'UO$_2$ relocation'
+  UO2_epsilonSwelling: 'UO$_2$ swelling'
+  QoI: 'FCT at EOL [K]'           # quantity of interest (axis labels)
+
+sensitivity:
+  correlation:
+    alpha: 0.05              # two-sided Spearman tests
+    fdr_method: fdr_bh       # Benjamini-Hochberg
+    n_validation: 6          # the 6 rods with the lowest maximum significant |rho| -> validation
+
+surrogate:
+  file: results/common/surrogates/surrogates.pkl
+  test_fraction: 0.2         # 80/20 split of the valid runs of each rod (~480 / 120)
+  kernel:                    # default; the stage "gp" uses the kernel recommended by the comparison
+    terms: [rbf]
+    white_noise: true
+    length_scale_bounds: [1.0e-3, 1.0e+5]
+  alpha_grid: null
+  alpha_fixed: 1.0e-6
+  n_restarts_optimizer: 3
+  refit_on_bound: true
+  # Kernel comparison: amplitude C x kernel, one length scale per parameter (ARD)
+  kernel_candidates:
+    rbf:                {terms: [rbf], white_noise: false}
+    matern52:           {terms: [matern], matern_nu: 2.5, white_noise: false}
+    rbf_white:          {terms: [rbf], white_noise: true}
+    matern52_white:     {terms: [matern], matern_nu: 2.5, white_noise: true}
+    matern32_rq_white:  {terms: [matern, rational_quadratic], combine: sum, matern_nu: 1.5, white_noise: true}
+  kernel_comparison_cases: all

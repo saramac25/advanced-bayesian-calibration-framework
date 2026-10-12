@@ -16,7 +16,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from abcf.config import case_noise, output_dir, resolve_path  # noqa: E402
+from abcf.config import case_noise, output_dir, resolve_path, validation_case_list  # noqa: E402
+
+LABELS = {}  # display names of the parameters (labels block of the config)
+
+
+def lab(name):
+    return LABELS.get(name, name)
 from abcf.io import load_results, load_synthetic_truth  # noqa: E402
 from abcf.postprocessing.posterior import Posterior  # noqa: E402
 from abcf.workflow import latest_result, load_all, parse_args  # noqa: E402
@@ -56,7 +62,7 @@ def comparison_plots(posts, truth, setup, cfg, val_cases, figs):
                 xx = np.linspace(*ax.get_xlim(), 400)
                 ax.plot(xx, np.exp(-0.5 * ((xx - m) / s) ** 2) / (s * np.sqrt(2 * np.pi)), color=C_TRUE,
                         lw=1.5, ls="--", label=r"$\mathcal{N}$(mean, std) of the calibration-case true values")
-        ax.set_xlabel(name)
+        ax.set_xlabel(lab(name))
         ax.set_ylabel("density")
         _legend_below(fig, ax)
         fig.tight_layout()
@@ -78,7 +84,7 @@ def case_plots(posts, truth, setup, figs):
         for e, cid in enumerate(cases):
             ax = axes[e // ncol, e % ncol]
             ax.hist(hc.X[:, e, j], bins=50, density=True, alpha=0.5, color=C_HC,
-                    label=f"hierarchical: X[case, {name}]")
+                    label=f"hierarchical: X[case, {lab(name)}]")
             if "SC" in posts:
                 ax.hist(posts["SC"].theta[:, j], bins=50, density=True, histtype="step", lw=1.5,
                         color=C_SC, label="standard: posterior (all cases)")
@@ -89,13 +95,13 @@ def case_plots(posts, truth, setup, figs):
         for e in range(len(cases), nrow * ncol):
             axes[e // ncol, e % ncol].axis("off")
         _legend_below(fig, axes[0, 0], ncol=3)
-        fig.supxlabel(name)
+        fig.supxlabel(lab(name))
         fig.tight_layout()
         fig.savefig(figs / f"posterior_cases_{name}.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
 
 
-def trace_plots(res, post, truth, setup, figs, stem):
+def trace_plots(res, post, truth, setup, figs, stem, per_case=True):
     ch = res["chains"]
     sc = res["scaler"]
     idx = setup.calibrated_idx
@@ -109,12 +115,12 @@ def trace_plots(res, post, truth, setup, figs, stem):
             for c in range(min(arr.shape[0], 8)):
                 axes[j, 0].plot(arr[c, :, j] * scale + shift, lw=0.5, alpha=0.8)
             axes[j, 0].axvline(post.burnin, color="gray", ls="--")
-            axes[j, 0].set_ylabel(f"{block}[{post.names[j]}]", fontsize=8)
+            axes[j, 0].set_ylabel(f"{block}[{lab(post.names[j])}]", fontsize=8)
         axes[-1, 0].set_xlabel("iteration")
         fig.tight_layout()
         fig.savefig(figs / f"trace_{stem}_{block}.png", dpi=120)
         plt.close(fig)
-    if post.method != "HC":
+    if post.method != "HC" or not per_case:
         return
     X = ch["X"]
     cases = post.case_ids
@@ -133,7 +139,7 @@ def trace_plots(res, post, truth, setup, figs, stem):
             ax.set_ylabel(cid, fontsize=8)
         for e in range(len(cases), nrow * ncol):
             axes[e // ncol, e % ncol].axis("off")
-        fig.suptitle(f"X[case, {name}] (black: true value)")
+        fig.suptitle(f"X[case, {lab(name)}] (black: true value)")
         fig.tight_layout()
         fig.savefig(figs / f"trace_{stem}_X_{name}.png", dpi=120)
         plt.close(fig)
@@ -148,7 +154,7 @@ def predictive_plots(posts, cfg, data, setup, sset, figs, n):
         preds[m] = {}
         for e, cid in enumerate(cases):
             theta = post.case_draws(e, n, seed)
-            Xs = sset.scaler.transform(setup.full_vector(theta))
+            Xs = sset.scaler.transform(setup.full_vector(theta, cid))
             preds[m][cid] = sset[cid].predict_qoi(Xs)          # (n, n_t)
     rows = []
     if scalar:
@@ -166,7 +172,7 @@ def predictive_plots(posts, cfg, data, setup, sset, figs, n):
             rows += [{"method": m, "case": c, "q2.5": a, "median": b, "q97.5": d}
                      for c, (a, b, d) in zip(cases, q)]
         ax.set_xticks(x, cases, rotation=45, ha="right")
-        ax.set_ylabel("QoI")
+        ax.set_ylabel(lab("QoI"))
         ax.legend(fontsize=8)
         fig.tight_layout()
         fig.savefig(figs / "predictive_calibration_cases.png", dpi=150)
@@ -183,7 +189,7 @@ def predictive_plots(posts, cfg, data, setup, sset, figs, n):
                     ax.fill_between(case.tim, q[0], q[2], color=col, alpha=0.3, label=f"{m}: 95% band")
                     ax.plot(case.tim, q[1], color=col, lw=1.2)
             ax.set_xlabel("time")
-            ax.set_ylabel("QoI")
+            ax.set_ylabel(lab("QoI"))
             ax.set_title(cid)
             ax.legend(fontsize=8)
             fig.tight_layout()
@@ -206,6 +212,7 @@ def main():
     if missing:
         raise FileNotFoundError(f"No results for {missing}: run step 04/05 or change postprocessing.mode.")
 
+    LABELS.update(cfg.get("labels") or {})
     out = output_dir(cfg, "postprocessing")
     figs = output_dir(cfg, "postprocessing", "figs")
     results = {m: load_results(f) for m, f in files.items()}
@@ -216,11 +223,13 @@ def main():
         truth = load_synthetic_truth(resolve_path(cfg, cfg["synthetic_truth_file"]), len(setup.names))
 
     pd.concat([p.summary() for p in posts.values()]).to_csv(out / "posterior_summary.csv", index=False)
-    val_cases = set(cfg["data"]["validation_cases"] or [])
+    val_cases = set(validation_case_list(cfg))
     comparison_plots(posts, truth, setup, cfg, val_cases, figs)
-    case_plots(posts, truth, setup, figs)
+    per_case = bool(cfg["postprocessing"].get("case_plots", True))
+    if per_case:
+        case_plots(posts, truth, setup, figs)
     for m, r in results.items():
-        trace_plots(r, posts[m], truth, setup, figs, files[m].stem)
+        trace_plots(r, posts[m], truth, setup, figs, files[m].stem, per_case)
     pred = predictive_plots(posts, cfg, data, setup, sset, figs, cfg["postprocessing"]["n_posterior_samples"])
     if len(pred):
         pred.to_csv(out / "predictive_calibration_cases.csv", index=False)

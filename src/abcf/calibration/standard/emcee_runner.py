@@ -1,7 +1,8 @@
 """Standard (non-hierarchical) Bayesian calibration with emcee.
 
 One set of calibrated parameters shared by all cases, uniform prior over
-the training-data range (standardised units), Gaussian likelihood of
+the training-data range (standardised units) or a normal prior truncated to
+that range (``parameters.<name>.prior``), Gaussian likelihood of
 ``abcf.calibration.likelihood``. Sampler: affine-invariant ensemble
 sampler (Goodman & Weare, 2010; Foreman-Mackey et al., 2013) with the
 stretch move; its scale ``a`` is set in the configuration.
@@ -23,20 +24,22 @@ import emcee
 import numpy as np
 
 from ...diagnostics.advice import standard_advice
-from ...diagnostics.convergence import chain_diagnostics
+from ...diagnostics.criteria import standard_rows
 
 
 class StandardPosterior:
     """log p(x | data) up to a constant, x = standardised calibrated parameters."""
 
-    def __init__(self, likelihoods: list, lower: np.ndarray, upper: np.ndarray):
+    def __init__(self, likelihoods: list, lower: np.ndarray, upper: np.ndarray, prior=None):
         self.likelihoods = likelihoods
         self.lower, self.upper = lower, upper
+        self.prior = prior          # (mean_s, std_s) of normal priors, NaN = uniform; or None
 
     def __call__(self, x: np.ndarray) -> float:
         if np.any(x < self.lower) or np.any(x > self.upper):
             return -np.inf
-        return float(sum(lik(x) for lik in self.likelihoods))
+        from ...config import normal_logprior
+        return normal_logprior(x, self.prior) + float(sum(lik(x) for lik in self.likelihoods))
 
 
 def run_emcee(log_prob, lower, upper, nwalkers: int, nsteps: int, stretch_a: float,
@@ -60,12 +63,25 @@ def run_emcee(log_prob, lower, upper, nwalkers: int, nsteps: int, stretch_a: flo
 
 
 def _passes(run: dict, cfg: dict, use_ess: bool) -> tuple:
-    d = chain_diagnostics(run["chains"][:, run["burnin"]:, :])
+    """(ok, rows, acceptance, advice). ``use_ess=False`` (walker tuning): only R-hat and
+    acceptance. With ``use_ess``, every active criterion of ``diagnostics``."""
+    names = [f"x{j}" for j in range(run["chains"].shape[2])]
+    rows = standard_rows(run, cfg, names)
     acc = float(run["acceptance"].mean())
-    advice = standard_advice(acc, float(np.max(d["rhat"])),
-                             float(np.min(d["ess_bulk"])) if use_ess else np.inf,
-                             run["nwalkers"], run["nsteps"], cfg)
-    return not advice, d, acc, advice
+    rhat = max(r["rhat"] for r in rows) if cfg["diagnostics"].get("standard_rhat", True) else 0.0
+    ess = min(r["ess_bulk"] for r in rows) if use_ess else np.inf
+    advice = standard_advice(acc, rhat, ess, run["nwalkers"], run["nsteps"], cfg)
+    if use_ess:
+        tau_bad = [r for r in rows if not r["tau_ok"]]
+        if tau_bad:
+            f = cfg["diagnostics"]["tau_factor"]
+            advice.append(f"N = {run['nsteps'] - run['burnin']} post-burn-in steps < {f} tau "
+                          f"(tau = {max(r['tau'] for r in tau_bad):.1f}): run longer.")
+        conv = all(r["converged"] for r in rows)
+        ok = conv and all(r["acceptance_ok"] for r in rows)
+    else:
+        conv = ok = not advice
+    return ok, rows, acc, advice, conv
 
 
 def tune_and_run(log_prob, lower, upper, cfg: dict, n_dim: int, progress: bool = True):
@@ -74,26 +90,31 @@ def tune_and_run(log_prob, lower, upper, cfg: dict, n_dim: int, progress: bool =
     seed = int(cfg["project"]["seed"])
     rows = []
 
-    def record(step, run, ok, d, acc, advice):
+    def record(step, run, ok, d, acc, advice, conv=None):
         rows.append({"step": step, "nwalkers": run["nwalkers"], "nsteps": run["nsteps"],
-                     "rhat_max": float(np.max(d["rhat"])), "ess_bulk_min": float(np.min(d["ess_bulk"])),
+                     "rhat_max": max(r["rhat"] for r in d), "ess_min": min(r["ess_bulk"] for r in d),
                      "ess_threshold": dg["ess_per_chain"] * run["nwalkers"],
-                     "acceptance_mean": float(acc), "wall_clock_s": run["wall_clock_s"], "pass": ok,
+                     "tau_max": max(r["tau"] for r in d), "n_over_tau_min": min(r["n_over_tau"] for r in d),
+                     "acceptance_mean": float(acc), "wall_clock_s": run["wall_clock_s"],
+                     "converged": conv if conv is not None else ok, "pass": ok,
                      "suggestion": " | ".join(advice)})
+
+    # emcee needs at least 2 x n_dim walkers
+    min_walkers = 2 * n_dim
 
     # Step 1: number of walkers
     mults = list(s["walker_multipliers"])
     if len(mults) == 1:
-        nwalkers = max(int(mults[0] * n_dim), 2 * n_dim + 2)
+        nwalkers = max(int(mults[0] * n_dim), min_walkers)
     else:
         cand = []
         for m in mults:
-            nw = max(int(m * n_dim), 2 * n_dim + 2)
+            nw = max(int(m * n_dim), min_walkers)
             run = run_emcee(log_prob, lower, upper, nw, s["nsteps_tuning"], s["stretch_a"],
                             s["burnin_fraction"], seed + m, progress)
-            ok, d, acc, advice = _passes(run, cfg, use_ess=False)
+            ok, d, acc, advice, _ = _passes(run, cfg, use_ess=False)
             record("1_walkers", run, ok, d, acc, advice)
-            cand.append((ok, run["wall_clock_s"], np.max(d["rhat"]), nw))
+            cand.append((ok, run["wall_clock_s"], max(r["rhat"] for r in d), nw))
         good = [c for c in cand if c[0]]
         if good:
             nwalkers = min(good, key=lambda c: c[1])[3]
@@ -105,13 +126,27 @@ def tune_and_run(log_prob, lower, upper, cfg: dict, n_dim: int, progress: bool =
 
     # Step 2: number of steps
     runs = []
-    for n in s["nsteps_list"]:
+    lengths = sorted(s["nsteps_list"]) if s.get("stop_at_first_pass") else list(s["nsteps_list"])
+    for n in lengths:
         run = run_emcee(log_prob, lower, upper, nwalkers, n, s["stretch_a"],
                         s["burnin_fraction"], seed + 1000 + n, progress)
-        ok, d, acc, advice = _passes(run, cfg, use_ess=True)
-        record("2_steps", run, ok, d, acc, advice)
-        runs.append((ok, run, advice))
-    good = [r for ok, r, _ in runs if ok]
+        ok, d, acc, advice, conv = _passes(run, cfg, use_ess=True)
+        record("2_steps", run, ok, d, acc, advice, conv)
+        runs.append((ok, run, advice, conv))
+        if progress or s.get("stop_at_first_pass"):
+            print(f"  emcee {nwalkers} walkers x {n} steps: converged = {conv}, "
+                  f"acceptance = {acc:.3f}, pass = {ok}")
+        if s.get("stop_at_first_pass") and conv:
+            break       # length found; the acceptance is checked at this length
+    if s.get("stop_at_first_pass"):
+        final, advice = runs[-1][1], runs[-1][2]
+        if not runs[-1][3]:
+            print("\nStandard calibration: the longest length does not meet the convergence criteria.")
+        if advice:
+            for a in advice:
+                print(f"  SUGGESTION: {a}")
+        return final, rows
+    good = [r for ok, r, _, _ in runs if ok]
     if good:
         final = min(good, key=lambda r: r["wall_clock_s"])
     else:

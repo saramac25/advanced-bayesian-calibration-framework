@@ -26,9 +26,18 @@ def main():
     lower, upper = sset.scaler.lower[idx], sset.scaler.upper[idx]
 
     print(f"Standard calibration of {setup.calibrated_names} on {len(cases)} case(s); "
-          f"fixed: {setup.fixed_values or 'none'}")
+          f"fixed: {setup.fixed_values or 'none'}"
+          + (f" (per-case values from data.fixed_values_file for {len(setup.case_fixed)} case(s))"
+             if setup.case_fixed else ""))
     liks = build_likelihoods(cfg, data, sset, setup, cases)
-    post = StandardPosterior(liks, lower, upper)
+    from abcf.config import normal_prior_std
+    prior = normal_prior_std(cfg, setup.names, sset.scaler, idx)
+    if prior is not None:
+        print("Normal priors (physical units): " + ", ".join(
+            f"{setup.names[k]} ~ N({cfg['parameters'][setup.names[k]]['prior']['mean']}, "
+            f"{cfg['parameters'][setup.names[k]]['prior']['std']}^2)"
+            for j, k in enumerate(idx) if not np.isnan(prior[1][j])) + ", truncated to the training range")
+    post = StandardPosterior(liks, lower, upper, prior)
     run, tuning = tune_and_run(post, lower, upper, cfg, setup.n_calibrated, not args.no_progress)
 
     stamp = timestamp()

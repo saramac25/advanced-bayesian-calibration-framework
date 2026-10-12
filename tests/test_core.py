@@ -147,3 +147,42 @@ def test_mhwg_sampler_normal_target():
             draws.append(x)
     draws = np.array(draws)
     assert np.allclose(np.cov(draws.T), cov, atol=0.15)
+
+
+# --------------------------------------------------------------------------- #
+#  Additions for the thesis case studies
+# --------------------------------------------------------------------------- #
+def test_fast_predictor_matches_sklearn():
+    rng = np.random.default_rng(1)
+    X = rng.uniform(-1, 1, size=(60, 3))
+    y = (np.sin(2 * X[:, 0]) + X[:, 1] ** 2 + 0.1 * X[:, 2])[:, None]
+    cfg_s = {"pca_variance": 0.99, "alpha_grid": None, "alpha_fixed": 1e-6, "n_restarts_optimizer": 0,
+             "refit_on_bound": False,
+             "kernel": {"terms": ["matern"], "combine": "sum", "matern_nu": 2.5, "white_noise": True,
+                        "length_scale_bounds": [1e-3, 1e5]}}
+    sur = CaseSurrogate("c").fit(X[:50], y[:50], cfg_s)
+    m_ref, s_ref = sur.gps[0].predict(X[50:51], return_std=True)
+    m, v = sur.predict(X[50:51])                       # fast path (1 point)
+    assert np.allclose(m[0, 0], m_ref[0]) and np.allclose(v[0, 0], s_ref[0] ** 2, rtol=1e-8)
+
+
+def test_case_specific_fixed_values():
+    s = ParameterSetup(["a", "b", "c"], [0], {"b": 1.0, "c": 2.0}, {"r1": {"b": 5.0}})
+    assert np.allclose(s.full_vector(np.array([[0.3]]), "r1"), [[0.3, 5.0, 2.0]])
+    assert np.allclose(s.full_vector(np.array([[0.3]]), "r2"), [[0.3, 1.0, 2.0]])
+    assert np.allclose(s.full_vector(np.array([[0.3]])), [[0.3, 1.0, 2.0]])
+
+
+def test_validation_split_lowest_max_rho():
+    from abcf.sensitivity.correlation import validation_split
+    oo = pd.DataFrame({"case_A": ["a", "a", "b"], "case_B": ["b", "c", "c"], "output_index": [0, 0, 0],
+                       "rho_squared": [0.98, 0.25, 0.36], "significant": [True, True, False]})
+    sp = validation_split(oo, ["a", "b", "c"], 1)
+    assert sp.loc[sp["set"] == "validation", "case"].tolist() == ["c"]   # max significant rho^2 0.25
+
+
+def test_chi2_terms():
+    from abcf.validation.metrics import chi2_terms
+    t = chi2_terms([1000.0], [1050.0], [40.0], [5.0], [10.0])
+    assert np.isclose(t["chi2_E_term"][0], 25.0)
+    assert np.isclose(t["chi2_tot_term"][0], 2500 / (40 ** 2 + 5 ** 2 + 10 ** 2))

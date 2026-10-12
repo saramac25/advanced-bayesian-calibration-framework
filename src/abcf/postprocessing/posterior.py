@@ -23,9 +23,12 @@ class Posterior:
         self.lower_phys = sc["lower"][self.idx] * s + m
         self.upper_phys = sc["upper"][self.idx] * s + m
         b = self.burnin
+        self._logp = None
         if self.method == "SC":
             self.theta_std = ch["theta"][:, b:, :].reshape(-1, len(self.names))
             self.theta = self.theta_std * s + m
+            if "log_prob" in ch:
+                self._logp = np.asarray(ch["log_prob"])[:, b:].reshape(-1)
         else:
             p = len(self.names)
             self.mu_std = ch["mu"][:, b:, :].reshape(-1, p)
@@ -34,6 +37,20 @@ class Posterior:
             self.mu = self.mu_std * s + m
             self.sigma = self.sigma_std * s
             self.X = self.X_std * s + m
+            if "logpost" in ch and np.isfinite(ch["logpost"]).any():
+                self._logp = np.asarray(ch["logpost"])[:, b:].reshape(-1)
+
+    def map_point(self) -> np.ndarray:
+        """Calibrated parameters (physical) at the highest posterior sample: theta for SC,
+        the population mean mu for HC (mode of the parameters of a new case). Falls back
+        to the posterior median if the log-posterior was not stored."""
+        if self.method == "SC":
+            arr = self.theta
+        else:
+            arr = self.mu
+        if self._logp is None or not np.isfinite(self._logp).any():
+            return np.median(arr, axis=0)
+        return arr[int(np.nanargmax(self._logp))]
 
     def population(self, n: int, seed: int = 0) -> np.ndarray:
         """HC: draws of a new case's parameters, theta ~ N(mu, sigma^2) truncated

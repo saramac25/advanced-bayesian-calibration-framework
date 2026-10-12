@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from . import io
-from .config import load_config, output_dir, parameter_setup, resolve_path
+from .config import load_config, output_dir, parameter_setup, resolve_path, validation_case_list
 
 
 def parse_args(description: str, extra=None):
@@ -28,17 +28,28 @@ def load_all(config_path, need_surrogates: bool = True):
     sset = None
     if need_surrogates:
         from .surrogate import load_surrogates
-        path = output_dir(cfg, "surrogates") / "surrogates.pkl"
+        path = surrogate_path(cfg)
         if not path.exists():
             raise FileNotFoundError(f"{path} not found: run workflows/03_train_surrogates.py first.")
         sset = load_surrogates(path)
     return cfg, data, setup, sset
 
 
+def surrogate_path(cfg) -> Path:
+    """Surrogate pickle: ``surrogate.file`` if set (shared between configurations),
+    otherwise results/surrogates/surrogates.pkl."""
+    f = cfg["surrogate"].get("file")
+    if f:
+        p = resolve_path(cfg, f)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    return output_dir(cfg, "surrogates") / "surrogates.pkl"
+
+
 def calibration_cases(cfg, data) -> list:
     sel = cfg["data"]["calibration_cases"]
     ids = data.case_ids if sel == "all" else list(sel)
-    val = set(cfg["data"]["validation_cases"] or [])
+    val = set(validation_case_list(cfg))
     ids = [c for c in ids if c not in val]
     missing = [c for c in ids if c not in data.cases]
     if missing:

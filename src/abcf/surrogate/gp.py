@@ -29,6 +29,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (RBF, ConstantKernel, Matern,
                                               RationalQuadratic, WhiteKernel)
 from sklearn.model_selection import GridSearchCV
+from scipy.linalg import solve_triangular
 
 
 # --------------------------------------------------------------------------- #
@@ -121,6 +122,31 @@ def _fit_one(Xs, y, cfg_s: dict, seed: int):
     return gp, alpha, hit_bound
 
 
+class _FastPredictor:
+    """Same predictive mean and variance as ``GaussianProcessRegressor.predict``
+    (normalize_y=True), without its input checks: used for the single-point
+    evaluations of the MCMC samplers, where those checks dominate the cost.
+    Equality with scikit-learn is checked in tests/test_core.py."""
+
+    def __init__(self, gp):
+        self.kernel = gp.kernel_
+        self.X_train = gp.X_train_
+        self.alpha = np.ravel(gp.alpha_)
+        L = gp.L_
+        self.L_inv = solve_triangular(L, np.eye(L.shape[0]), lower=True)
+        self.y_mean = float(np.ravel(gp._y_train_mean)[0])
+        self.y_std = float(np.ravel(gp._y_train_std)[0])
+
+    def __call__(self, X, return_var=True):
+        K_trans = self.kernel(X, self.X_train)
+        mean = K_trans @ self.alpha * self.y_std + self.y_mean
+        if not return_var:
+            return mean, None
+        V = K_trans @ self.L_inv.T
+        var = self.kernel.diag(X) - np.einsum("ij,ij->i", V, V)
+        return mean, np.maximum(var, 0.0) * self.y_std ** 2
+
+
 # --------------------------------------------------------------------------- #
 #  Output reduction: PCA for n_t > 1, identity for a scalar QoI
 # --------------------------------------------------------------------------- #
@@ -188,17 +214,36 @@ class CaseSurrogate:
     def n_components(self) -> int:
         return len(self.gps)
 
+    def _fast(self):
+        fast = self.__dict__.get("_fast_predictors")
+        if fast is None or len(fast) != len(self.gps):
+            fast = [_FastPredictor(gp) for gp in self.gps]
+            self.__dict__["_fast_predictors"] = fast
+        return fast
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state.pop("_fast_predictors", None)      # rebuilt after loading
+        return state
+
     def predict(self, Xs: np.ndarray, return_var: bool = True):
         """Mean and variance in the reduced space, each (n_points, k)."""
-        Xs = np.atleast_2d(Xs)
+        Xs = np.atleast_2d(np.asarray(Xs, dtype=float))
         means, variances = [], []
-        for gp in self.gps:
-            if return_var:
-                m, s = gp.predict(Xs, return_std=True)   # explicit keyword: std, then squared
-                variances.append(s ** 2)
-            else:
-                m = gp.predict(Xs)
-            means.append(m)
+        if Xs.shape[0] <= 16:          # MCMC: few points, fast path (same numbers)
+            for f in self._fast():
+                m, v = f(Xs, return_var)
+                means.append(m)
+                if return_var:
+                    variances.append(v)
+        else:
+            for gp in self.gps:
+                if return_var:
+                    m, s = gp.predict(Xs, return_std=True)   # explicit keyword: std, then squared
+                    variances.append(s ** 2)
+                else:
+                    m = gp.predict(Xs)
+                means.append(m)
         mean = np.column_stack(means)
         if not return_var:
             return mean
@@ -209,7 +254,7 @@ class CaseSurrogate:
         return self.reduction.reconstruct(self.predict(Xs, return_var=False))
 
     def evaluate(self, Xs_test, Y_test) -> dict:
-        """R2 and RMSE on held-out runs (QoI space) and per component."""
+        """R2 and RMSE on test runs (QoI space) and per component."""
         pred = self.predict_qoi(Xs_test)
         resid = Y_test - pred
         ss_res = np.sum(resid ** 2)

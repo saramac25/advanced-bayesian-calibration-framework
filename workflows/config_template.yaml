@@ -20,7 +20,10 @@ project:
 data:
   input_file: data/input_data.h5
   calibration_cases: all       # "all" or a list of case ids, e.g. [case_01, case_04]
-  validation_cases: []         # case ids excluded from calibration, used in step 08
+  validation_cases: []         # case ids excluded from calibration, used in step 08, or the path of a
+                               # CSV with columns case,set (e.g. results/correlation/validation_split.csv)
+  fixed_values_file: null      # optional CSV: column `case` + one column per non-calibrated parameter
+                               # whose value changes from case to case (overrides fixed_value)
 
 # Synthetic study: when true, the true values in `synthetic_truth_file`
 # are overlaid on the posterior plots.
@@ -38,6 +41,12 @@ parameters:
   theta_1: {calibrate: true,  bounds: [0.5, 1.5]}
   theta_2: {calibrate: true,  bounds: [0.5, 1.5]}
   theta_3: {calibrate: false, fixed_value: 1.0, bounds: [0.5, 1.5]}
+
+# Display names of the parameters in the figures (matplotlib mathtext), optional;
+# parameters not listed are shown with their column name; the key QoI names the
+# quantity of interest in the axis labels. Example:
+#   labels: {UO2_k: 'UO$_2$ $k$', UO2_alphaT: 'UO$_2$ $\alpha_T$', QoI: 'FCT at EOL [K]'}
+labels: {}
 
 # -----------------------------------------------------------------------------
 #  Measurement uncertainty (relative): sigma = relative * |measured value|
@@ -61,13 +70,19 @@ sensitivity:
   correlation:
     alpha: 0.05                # significance level of the Spearman tests
     fdr_method: fdr_bh         # correction for multiple tests (Benjamini-Hochberg)
-    effect_size_threshold: 0.1 # input-output: |rho| below this is "negligible"
-    redundancy_threshold: 0.98 # output-output: |rho| above this -> redundant cases
+    effect_size_threshold: 0.01 # input-output: rho^2 below this is "negligible" (= |rho| < 0.1)
+    redundancy_threshold: 0.96  # output-output: rho^2 above this -> redundant cases (= |rho| > 0.98)
+    n_validation: 0            # >0: the n cases with the lowest maximum significant rho^2 with the
+                               # other cases go to validation (results/correlation/validation_split.csv)
+    heatmap_vmin: auto         # lower end of the colour scale of the case-case |rho| heatmap:
+                               # auto -> minimum rho^2 rounded down to 0.01; or a number, e.g. 0.8
 
 # -----------------------------------------------------------------------------
 #  Step 03: Gaussian Process surrogates (one set of GPs per case)
 # -----------------------------------------------------------------------------
 surrogate:
+  file: null                   # path of the surrogate pickle; null -> results/surrogates/surrogates.pkl
+                               # (give the same file in several configs to share the GPs)
   test_fraction: 0.2           # share of the solver runs kept for GP testing
   pca_variance: 0.99           # time-dependent QoI only: retained explained variance
   kernel:
@@ -81,6 +96,10 @@ surrogate:
   n_restarts_optimizer: 5
   refit_on_bound: true         # refit with wider bounds if the optimiser hits a bound
   relaxed_length_scale_bounds: [1.0e-5, 1.0e+9]
+  # Kernel comparison (python workflows/03_train_surrogates.py config.yaml --compare-kernels):
+  # every candidate is trained on the same split and scored on the test runs.
+  kernel_candidates: {}        # e.g. {matern52_white: {terms: [matern], matern_nu: 2.5, white_noise: true}}
+  kernel_comparison_cases: all # "all" or a list of case ids (a subset is faster)
 
 # Include the GP predictive variance in the likelihood (standard AND hierarchical).
 likelihood:
@@ -94,6 +113,8 @@ standard:
   walker_multipliers: [2, 4, 6, 8]       # tuning step 1: nwalkers = multiplier * n_calibrated
   nsteps_tuning: 10000                   # steps per walker in tuning step 1
   nsteps_list: [1000, 5000, 10000, 20000] # tuning step 2: steps per walker
+  stop_at_first_pass: false    # true: step 2 stops at the first length meeting the criteria
+                               # (lengths tried in increasing order)
   burnin_fraction: 0.5
 
 # -----------------------------------------------------------------------------
@@ -103,6 +124,8 @@ hierarchical:
   n_chains: 4
   parallel_chains: true        # run the chains at the same time on several CPU cores
   nsteps: 50000
+  nsteps_list: null            # e.g. [10000, 30000, 50000, 100000, 150000]: lengths tried in order
+                               # until the convergence criteria are met (replaces nsteps)
   burnin_fraction: 0.5         # the proposal adaptation stops at the end of the burn-in
   dispersed_init: true         # chains 2..N start from random points in the prior
   initial_sigma: 0.5           # starting population std (standardised units)
@@ -122,7 +145,9 @@ hierarchical:
       sigma: 0.44
       X: 0.234                 # multi-dimensional block: 0.234 (Roberts et al., 1997)
     proposal_update_start: 4000  # covariance only: first update of the proposal
-    s_d: null                  # covariance only: scaling; null -> 2.4^2 / d (Haario et al., 2001)
+    stop_before_burnin_end: 0  # the adaptation stops this many iterations before the end of the burn-in
+    s_d: null                  # covariance only: scaling; null -> 2.4^2 / d (Haario et al., 2001);
+                               # one value, or per block: {mu: ..., sigma: ..., X: ...}
     epsilon: 1.0e-10           # covariance only: regularisation
   initial_proposal_variance:   # standardised units
     mu: 0.5
@@ -135,6 +160,12 @@ hierarchical:
     initial_std: 0.1           # standardised units
     target_acceptance: 0.44
     adapt_every: 100
+  joint_scale_move:
+    enabled: false             # joint move of sigma_d and of all deviations X[:, d] - mu_d by the
+                               # same factor (Liu & Sabatti, 2000): mixing of sigma when it is small
+    initial_std: 0.1           # std of log(factor)
+    target_acceptance: 0.44
+    adapt_every: 100
   store_logpost: true          # joint log-posterior at every iteration (one extra GP call per case)
 
 # -----------------------------------------------------------------------------
@@ -143,6 +174,14 @@ hierarchical:
 diagnostics:
   rhat_max: 1.01
   ess_per_chain: 100           # ESS >= ess_per_chain * number of chains (or walkers)
+  check_tail_ess: false        # also require tail-ESS >= the same threshold
+  tau_factor: null             # e.g. 50: require N >= tau_factor * tau (N = post-burn-in draws per
+                               # chain, tau = integrated autocorrelation time); null -> reported only
+  standard_rhat: true          # false: R-hat not used as a criterion for emcee (walkers are not
+                               # independent chains)
+  standard_ess: arviz          # emcee ESS: arviz (bulk ESS) | autocorr (N * n_walkers / tau, emcee tau)
+  hierarchical_convergence_blocks: [mu, sigma, X]  # blocks that must converge (the others are
+                               # reported; their acceptance is always checked)
   mcse_over_std_max: null      # optional threshold on MCSE/sigma; null -> reported only
   acceptance_range_standard: [0.2, 0.5]   # emcee (Foreman-Mackey et al., 2013)
   acceptance_range_1d: [0.3, 0.6]         # hierarchical: mu_d, sigma_d blocks (and X if 1 parameter)
@@ -155,11 +194,15 @@ diagnostics:
 postprocessing:
   mode: both                   # standard | hierarchical | both
   n_posterior_samples: 2000    # draws used for predictive plots
+  case_plots: true             # per-case posterior and X trace plots (set false with many cases)
   show_reference_population: false  # synthetic only: draw N(mean, std) of the true values
                                     # of the calibration cases (as in the thesis figures)
 
 validation:
   run: false
+  source: solver               # solver: re-runs in validation_<method>.h5 | surrogate: GPs of the
+                               # validation cases (chi2_E, chi2_tot, coverage)
+  n_draws: 4000                # surrogate source: posterior draws propagated through the GPs
   files:                       # solver re-runs with posterior samples (docs/DATA_FORMAT.md)
     SC: data/validation_SC.h5
     HC: data/validation_HC.h5

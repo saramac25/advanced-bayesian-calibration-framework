@@ -1,0 +1,72 @@
+{
+  "created": "2026-10-12 11:50",
+  "seed": 20261009,
+  "n_rods": 130,
+  "gp_domain": [
+    0.5,
+    1.5
+  ],
+  "distributions": {
+    "UO2_k": {
+      "type": "normal",
+      "mean": 1.15,
+      "sigma_or_half_range": 0.1,
+      "std": 0.1
+    },
+    "UO2_rho": {
+      "type": "normal",
+      "mean": 0.9873684210526316,
+      "sigma_or_half_range": 0.008592910848549946,
+      "std": 0.008592910848549946
+    },
+    "UO2_alphaT": {
+      "type": "normal",
+      "mean": 0.9,
+      "sigma_or_half_range": 0.075,
+      "std": 0.075
+    },
+    "UO2_epsilonRelocation": {
+      "type": "uniform",
+      "mean": 0.9,
+      "sigma_or_half_range": 0.05,
+      "std": 0.02886751345948129
+    },
+    "UO2_epsilonSwelling": {
+      "type": "normal",
+      "mean": 1.15,
+      "sigma_or_half_range": 0.15,
+      "std": 0.15
+    }
+  },
+  "true_A": {
+    "UO2_k": 1.14317,
+    "UO2_rho": 0.985507,
+    "UO2_alphaT": 0.922392,
+    "UO2_epsilonRelocation": 0.870923,
+    "UO2_epsilonSwelling": 1.38686
+  },
+  "bias": {
+    "definition": "non-calibrated parameters (rho, relocation, swelling) at the OFFBEAT default (1.0); reality = true_A",
+    "values": {
+      "UO2_rho": 1.0,
+      "UO2_epsilonRelocation": 1.0,
+      "UO2_epsilonSwelling": 1.0
+    },
+    "distance_from_true_A_in_std": {
+      "UO2_rho": 1.6866228749999974,
+      "UO2_epsilonRelocation": 4.471358441771359,
+      "UO2_epsilonSwelling": -2.579066666666667
+    }
+  },
+  "offbeat_density_fraction": 0.95,
+  "measurement_uncertainty_relative": 0.01,
+  "lhgr": {
+    "mode": "tp3",
+    "note": "TP3 power history of every rod (constant/lhgr, axialProfile, fastFlux), as in the 600 LHS runs"
+  },
+  "references": {
+    "UO2_k, UO2_alphaT, UO2_epsilonRelocation, UO2_epsilonSwelling": "Fiorina et al. 2022, Table 1 (from Che et al. 2018)",
+    "UO2_rho": "Ikonen 2016, Nucl. Eng. Des. 297:72-80, doi:10.1016/j.nucengdes.2015.11.025, Table 2: (93.8 +- 1.6)% TD; OFFBEAT default densityFraction 0.95",
+    "centres": "shifted from the OFFBEAT default (1.0); widths from the references"
+  }
+}

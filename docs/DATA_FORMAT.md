@@ -118,6 +118,28 @@ For each case and method, `08_validation.py` computes:
 When both `validation_SC.h5` and `validation_HC.h5` are present, the
 two methods are compared on the cases they share.
 
+### Validation through the surrogates
+
+With `validation.source: surrogate`, no solver re-run is needed: the
+posterior is propagated through the GPs of the validation cases
+(`validation.n_draws` draws; hierarchical: draws for a new case from the
+population, mu and sigma from the same iteration). For each method:
+
+- chi2_E = (1/N) sum (p_fit - y)^2 / sigma_exp^2;
+- chi2_tot = (1/N) sum (p_fit - y)^2 / (sigma_fit^2 + sigma_exp^2), with
+  sigma_fit^2 = sigma_post^2 + sigma_GP^2 (Helgesson et al., 2018;
+  Robertson et al., 2026);
+- coverage, z-scores and RMSE of the predictive distribution (GP
+  variance included);
+
+p_fit being the prediction at the MAP point (standard: the posterior
+sample with the highest log-posterior; hierarchical: mu at the iteration
+with the highest log-posterior), sigma_post the standard deviation of the
+predictions, sigma_GP the GP standard deviation at the MAP point and
+sigma_exp the measurement uncertainty. Ideal value of both chi2: 1.
+Output: `results/validation/validation_surrogate_summary.csv` and
+`validation_surrogate_per_point.csv`.
+
 ## 4. Measurement uncertainty — `config.yaml`
 
 The measurement uncertainty is not stored in the data files. It is

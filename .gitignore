@@ -14,6 +14,7 @@ dist/
 
 # Results and data produced by the workflows: never committed
 results/
+results_quick/
 runs/
 *.p
 *.pkl
@@ -28,3 +29,7 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# run logs
+log_*.txt
+*log*.txt

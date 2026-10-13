@@ -7,6 +7,9 @@
     python run_thesis_ch5.py figures
     python run_thesis_ch5.py all --quick        # pipeline check in a few minutes: 10 calibration
                                                 # rods, short chains (NOT the thesis results)
+    python run_thesis_ch5.py epistemic aleatoric modelbias epistemic_prior figures \
+        --n-cal 16 --hc-steps 30000 50000       # reduced set: 6 validation + 16 calibration rods
+                                                # (the next 16 of the correlation ranking)
 
 Stages
   prepare      inputs/*.csv -> data/*.h5 (prepare_data.py)
@@ -56,8 +59,23 @@ def _abs(value, base: Path):
     return str(p if p.is_absolute() else (base / p).resolve())
 
 
-def effective_config(name: str, results: Path, quick: bool) -> Path:
-    """Copy of config_<name>.yaml with absolute paths (and quick-test overrides)."""
+def calibration_subset(results: Path, n_cal: int) -> list:
+    """The first n_cal calibration rods of validation_split.csv (ranking by increasing
+    maximum correlation with the other rods, i.e. the least redundant rods first)."""
+    import pandas as pd
+    f = results / "common" / "correlation" / "validation_split.csv"
+    if not f.exists():
+        sys.exit(f"--n-cal needs {f}: run the correlation stage first.")
+    sp = pd.read_csv(f).sort_values("rank")
+    rods = sp[sp["set"] == "calibration"]["case"].tolist()
+    if n_cal > len(rods):
+        sys.exit(f"--n-cal {n_cal}: only {len(rods)} calibration rods available.")
+    return rods[:n_cal]
+
+
+def effective_config(name: str, results: Path, quick: bool,
+                     cal_rods: list | None = None, hc_steps: list | None = None) -> Path:
+    """Copy of config_<name>.yaml with absolute paths (and quick-test / reduced-set overrides)."""
     cfg = yaml.safe_load((HERE / f"config_{name}.yaml").read_text())
     cfg = copy.deepcopy(cfg)
     out_rel = Path(cfg["project"]["output_dir"]).relative_to("results")
@@ -75,6 +93,11 @@ def effective_config(name: str, results: Path, quick: bool) -> Path:
         s["file"] = str(results / Path(s["file"]).relative_to("results"))
     if quick:
         _quick_overrides(name, cfg)
+    if name != "surrogates":
+        if cal_rods:
+            cfg["data"]["calibration_cases"] = list(cal_rods)
+        if hc_steps:
+            cfg["hierarchical"]["nsteps_list"] = [int(n) for n in hc_steps]
     path = results / "_configs" / f"config_{name}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(cfg, sort_keys=False))
@@ -164,7 +187,9 @@ def check_consistency(results: Path):
 def run(cmd: list):
     print("  $ " + " ".join(str(c) for c in cmd), flush=True)
     t0 = time.time()
-    res = subprocess.run([sys.executable] + [str(c) for c in cmd], cwd=HERE)
+    # -u: unbuffered output, so that the progress appears at once also when the output is
+    # redirected to a file (e.g. | Tee-Object), not only at the end of each step
+    res = subprocess.run([sys.executable, "-u"] + [str(c) for c in cmd], cwd=HERE)
     if res.returncode != 0:
         sys.exit(f"Failed: {' '.join(str(c) for c in cmd)}")
     print(f"  ({(time.time() - t0) / 60:.1f} min)", flush=True)
@@ -212,6 +237,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("stages", nargs="*", default=["all"], help=f"all or some of {STAGES}")
     ap.add_argument("--quick", action="store_true", help="fast pipeline check (not the thesis results)")
+    ap.add_argument("--n-cal", type=int, default=None,
+                    help="calibrate on the first N calibration rods of validation_split.csv only "
+                         "(default: all 124); the 6 validation rods are unchanged")
+    ap.add_argument("--hc-steps", type=int, nargs="+", default=None,
+                    help="hierarchical chain lengths (overrides hierarchical.nsteps_list), "
+                         "e.g. --hc-steps 30000 50000")
     ap.add_argument("--keep", action="store_true",
                     help="do not delete the old outputs of the selected stages before running them")
     args = ap.parse_args()
@@ -260,7 +291,12 @@ def main():
         run([HERE / "sobol_ch5.py", "--surrogates", results / "common" / "surrogates" / "surrogates.pkl",
              "--out", results / "common" / "sobol"])
 
-    cfgs = {n: effective_config(n, results, args.quick) for n in CASES}
+    cal_rods = calibration_subset(results, args.n_cal) if args.n_cal else None
+    if cal_rods:
+        print(f"\n  calibration on {len(cal_rods)} rods: {', '.join(cal_rods)}")
+        (results / "_configs").mkdir(parents=True, exist_ok=True)
+        (results / "_configs" / "calibration_rods.txt").write_text("\n".join(cal_rods) + "\n")
+    cfgs = {n: effective_config(n, results, args.quick, cal_rods, args.hc_steps) for n in CASES}
     for name in CASES:
         if name not in stages:
             continue

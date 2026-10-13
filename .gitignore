@@ -29,3 +29,7 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# run logs
+log_*.txt
+*log*.txt

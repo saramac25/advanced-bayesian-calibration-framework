@@ -114,6 +114,7 @@ standard:
   nsteps_tuning: 10000                   # steps per walker in tuning step 1
   nsteps_list: [1000, 5000, 10000, 20000] # tuning step 2: steps per walker
   stop_at_first_pass: false    # true: step 2 stops at the first length meeting the criteria
+  continue_chains: true        # with stop_at_first_pass: a longer length continues the same walkers
                                # (lengths tried in increasing order)
   burnin_fraction: 0.5
 
@@ -125,6 +126,8 @@ hierarchical:
   parallel_chains: true        # run the chains at the same time on several CPU cores
   nsteps: 50000
   nsteps_list: null            # e.g. [10000, 30000, 50000, 100000, 150000]: lengths tried in order
+  continue_chains: true        # a longer length continues the chains (proposals frozen after the
+                               # first adaptation) instead of restarting them
                                # until the convergence criteria are met (replaces nsteps)
   burnin_fraction: 0.5         # the proposal adaptation stops at the end of the burn-in
   dispersed_init: true         # chains 2..N start from random points in the prior

@@ -53,7 +53,11 @@ def _initial_state(rng, chain: int, h: dict, lower, upper, n_cases: int):
     return mu, sig, X
 
 
-def _build_samplers(mh, rng, h: dict, case_ids: list, likelihoods: list, lower, upper, nsteps):
+def _build_samplers(mh, rng, h: dict, case_ids: list, likelihoods: list, lower, upper, nsteps,
+                    frozen: list | None = None):
+    """``frozen``: list of (cov, adaptation_factor), one per sampler (hyper first, then X),
+    from a previous segment of the same chain: the proposals are set to these values and
+    not adapted any more (continuation of a chain after its adaptation phase)."""
     adaptation, custom_logps, proposals, random_walk, _ = mh
     p = len(lower)
     burnin = int(round(h["burnin_fraction"] * nsteps))
@@ -64,6 +68,8 @@ def _build_samplers(mh, rng, h: dict, case_ids: list, likelihoods: list, lower, 
     v0 = h["initial_proposal_variance"]
 
     def adapt(kind, index=None):
+        if frozen is not None:
+            return None
         block = {"mu": "mu", "sig": "sigma", "X": "X"}[kind]
         if ad[block] == "acceptance_rate":
             return adaptation.adapt_acceptance_rate(
@@ -120,12 +126,22 @@ def _build_samplers(mh, rng, h: dict, case_ids: list, likelihoods: list, lower, 
             x_samplers.append(random_walk.mh_sampler(
                 proposals.propose_X(cov, e, rng=rng), logp, recompute_logp=True, rng=rng,
                 adaptation=adapt("X", e)))
+    if frozen is not None:
+        for smp, (cov, fac) in zip(hyper + x_samplers, frozen):
+            smp.proposal.cov = np.array(cov, dtype=float)
+            smp.proposal.adaptation_factor = float(fac)
     return hyper, x_samplers
 
 
 def run_chain(chain: int, likelihoods: list, case_ids: list, lower, upper, cfg: dict,
-              progress: bool = True, nsteps: int | None = None) -> dict:
-    """Run one chain; returns histories in standardised units."""
+              progress: bool = True, nsteps: int | None = None, resume: dict | None = None) -> dict:
+    """Run one chain; returns histories in standardised units.
+
+    ``resume``: checkpoint returned by a previous call for the same chain. The chain then
+    continues from its last state, with the same random-number stream and the proposals
+    (block covariances, joint-move step sizes) frozen at the end of the previous adaptation,
+    for ``nsteps`` further iterations; the returned histories contain only these iterations.
+    Without ``resume`` the chain starts from scratch and adapts during its burn-in."""
     mh = _import_mhwg()
     _, custom_logps, _, _, states = mh
     h = cfg["hierarchical"]
@@ -135,9 +151,16 @@ def run_chain(chain: int, likelihoods: list, case_ids: list, lower, upper, cfg: 
     rng = np.random.default_rng(seed)
     p, E = len(lower), len(case_ids)
 
-    mu, sig, X = _initial_state(rng, chain, h, lower, upper, E)
+    if resume is None:
+        mu, sig, X = _initial_state(rng, chain, h, lower, upper, E)
+        frozen = None
+    else:
+        rng.bit_generator.state = resume["rng_state"]
+        mu, sig, X = (np.array(resume[k], dtype=float) for k in ("mu", "sig", "X"))
+        frozen = resume["proposals"]
     st = states.state(mu, sig, X)
-    hyper, x_samplers = _build_samplers(mh, rng, h, case_ids, likelihoods, lower, upper, nsteps)
+    hyper, x_samplers = _build_samplers(mh, rng, h, case_ids, likelihoods, lower, upper, nsteps,
+                                        frozen=frozen)
     logp_hyper = custom_logps.logp_hyper()
     from ...config import normal_logprior
     pm = h.get("_normal_prior_mu")
@@ -148,6 +171,10 @@ def run_chain(chain: int, likelihoods: list, case_ids: list, lower, upper, cfg: 
     shift_std = np.full(p, float(shift["initial_std"]))
     scale = h.get("joint_scale_move") or {"enabled": False}
     scale_std = np.full(p, float(scale.get("initial_std", 0.1)))
+    if resume is not None:             # continuation: no further adaptation
+        adapt_end = -1
+        shift_std = np.array(resume["shift_std"], dtype=float)
+        scale_std = np.array(resume["scale_std"], dtype=float)
     sig_ub = float(h["sigma_upper_bound"])
 
     mu_h = np.empty((nsteps, p))
@@ -234,7 +261,12 @@ def run_chain(chain: int, likelihoods: list, case_ids: list, lower, upper, cfg: 
             logpost[i] = logp_hyper(st) + normal_logprior(st.mu, prior_mu) + \
                 (ll_cur if ll_cur is not None else total_loglik(st.X))
 
-    return {"mu": mu_h, "sigma": sig_h, "X": X_h, "logpost": logpost,
+    checkpoint = {"mu": st.mu.copy(), "sig": st.sig.copy(), "X": st.X.copy(),
+                  "rng_state": rng.bit_generator.state,
+                  "proposals": [(np.array(smp.proposal.cov, dtype=float), float(smp.proposal.adaptation_factor))
+                                for smp in hyper + x_samplers],
+                  "shift_std": shift_std.copy(), "scale_std": scale_std.copy()}
+    return {"mu": mu_h, "sigma": sig_h, "X": X_h, "logpost": logpost, "checkpoint": checkpoint,
             "acceptance_shift": acc_shift, "shift_std_final": shift_std,
             "acceptance_scale": acc_scale, "scale_std_final": scale_std,
             "acceptance_mu": acc_mu, "acceptance_sigma": acc_sig, "acceptance_X": acc_X,
@@ -246,21 +278,33 @@ def _run_chain_args(args):
 
 
 def run_hierarchical(likelihoods: list, case_ids: list, lower, upper, cfg: dict,
-                     progress: bool = True, nsteps: int | None = None) -> dict:
+                     progress: bool = True, nsteps: int | None = None, previous: dict | None = None) -> dict:
     """Run ``n_chains`` independent chains (different seeds; dispersed starts if requested).
 
     With ``parallel_chains`` the chains run in separate processes, one per CPU core.
     ``nsteps`` overrides ``hierarchical.nsteps`` (used by the length escalation).
+    ``previous``: result of a previous call. The chains are then CONTINUED from their last
+    state up to ``nsteps`` iterations in total (``nsteps - previous["nsteps"]`` new
+    iterations, proposals frozen), and the returned histories cover all ``nsteps``
+    iterations; the burn-in is recomputed as ``burnin_fraction * nsteps``.
     """
     h = cfg["hierarchical"]
     n = int(h["n_chains"])
-    jobs = [(c, likelihoods, case_ids, lower, upper, cfg, progress, nsteps) for c in range(n)]
+    total = int(nsteps or h["nsteps"])
+    if previous is not None:
+        n_new = total - int(previous["nsteps"])
+        if n_new <= 0:
+            return previous
+        resumes = list(previous["checkpoints"])
+    else:
+        n_new, resumes = total, [None] * n
+    jobs = [(c, likelihoods, case_ids, lower, upper, cfg, progress, n_new, resumes[c]) for c in range(n)]
     workers = min(n, os.cpu_count() or 1)
     if h.get("parallel_chains") and n > 1 and workers > 1:
         from concurrent.futures import ProcessPoolExecutor
         print(f"Running {n} chains on {workers} CPU cores ...")
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            chains = list(pool.map(_run_chain_args, [j[:6] + (False, nsteps) for j in jobs]))
+            chains = list(pool.map(_run_chain_args, [j[:6] + (False,) + j[7:] for j in jobs]))
     else:
         chains = [run_chain(*j) for j in jobs]
     stack = lambda k: np.stack([ch[k] for ch in chains])   # noqa: E731
@@ -269,5 +313,63 @@ def run_hierarchical(likelihoods: list, case_ids: list, lower, upper, cfg: dict,
                                  "acceptance_mu", "acceptance_sigma", "acceptance_X")}
     out.update({"wall_clock_s": np.array([ch["wall_clock_s"] for ch in chains]),
                 "seeds": np.array([ch["seed"] for ch in chains]),
-                "burnin": chains[0]["burnin"], "nsteps": chains[0]["nsteps"]})
+                "checkpoints": [ch["checkpoint"] for ch in chains],
+                "burnin": chains[0]["burnin"], "nsteps": chains[0]["nsteps"], "continued_from": 0})
+    if previous is None:
+        return out
+    # Concatenate the new iterations to the previous ones (iteration axis = 1)
+    for k in _CONCAT_KEYS:
+        out[k] = np.concatenate([previous[k], out[k]], axis=1)
+    out["wall_clock_s"] = previous["wall_clock_s"] + out["wall_clock_s"]
+    out["nsteps"] = total
+    out["burnin"] = int(round(h["burnin_fraction"] * total))
+    out["continued_from"] = int(previous["nsteps"])
     return out
+
+
+# --- checkpoints in the results file (continuation in a later run) -----------------------
+
+_CONCAT_KEYS = ("mu", "sigma", "X", "logpost", "acceptance_shift", "acceptance_scale",
+                "acceptance_mu", "acceptance_sigma", "acceptance_X")
+
+
+def checkpoints_for_h5(checkpoints: list) -> dict:
+    """Checkpoints of the chains as a nested dict of arrays (``io.save_results``)."""
+    import json
+    out = {}
+    for c, ck in enumerate(checkpoints):
+        g = {"mu": np.asarray(ck["mu"], float), "sig": np.asarray(ck["sig"], float),
+             "X": np.asarray(ck["X"], float), "shift_std": np.asarray(ck["shift_std"], float),
+             "scale_std": np.asarray(ck["scale_std"], float),
+             "rng_state": json.dumps(ck["rng_state"]),
+             "prop_factor": np.array([f for _, f in ck["proposals"]], dtype=float)}
+        for k, (cov, _) in enumerate(ck["proposals"]):
+            g[f"prop_cov_{k:04d}"] = np.atleast_2d(np.asarray(cov, float))
+        out[f"chain{c:02d}"] = g
+    return out
+
+
+def previous_from_saved(saved: dict) -> dict:
+    """Result dict of ``run_hierarchical`` rebuilt from a saved HC_*.h5 (``io.load_results``),
+    to be passed as ``previous``. Raises ValueError if the file has no checkpoints (files
+    written before the continuation feature): such chains cannot be continued exactly."""
+    import json
+    if "checkpoints" not in saved:
+        raise ValueError("this HC file has no chain checkpoints (written by an older version): "
+                         "it cannot be continued, run the hierarchical calibration again.")
+    ch = saved["chains"]
+    prev = {k: np.asarray(ch[k], dtype=bool if k.startswith("acceptance") else float)
+            for k in _CONCAT_KEYS}
+    cks = []
+    for name in sorted(saved["checkpoints"]):
+        g = saved["checkpoints"][name]
+        covs = [g[k] for k in sorted(g) if k.startswith("prop_cov_")]
+        cks.append({"mu": g["mu"], "sig": g["sig"], "X": g["X"], "shift_std": g["shift_std"],
+                    "scale_std": g["scale_std"], "rng_state": json.loads(g["rng_state"]),
+                    "proposals": list(zip(covs, g["prop_factor"]))})
+    md = saved["metadata"]
+    prev.update({"checkpoints": cks, "nsteps": int(md["nsteps"]), "burnin": int(md["burnin"]),
+                 "wall_clock_s": np.asarray(md["wall_clock_s"], float),
+                 "seeds": np.asarray(md["seeds"]), "continued_from": 0,
+                 "shift_std_final": ch["shift_std_final"], "scale_std_final": ch["scale_std_final"]})
+    return prev

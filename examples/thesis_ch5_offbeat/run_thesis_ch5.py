@@ -20,8 +20,10 @@ Stages
   gp           step 03: one GP per rod (kernel of config_surrogates.yaml)
   sobol        Sobol' indices S1, ST of the 5 GP parameters with the prior uncertainty
                (literature widths, centred on the OFFBEAT default): which to calibrate (sobol_ch5.py)
-  epistemic, aleatoric, modelbias, epistemic_prior (epistemic with literature normal priors:
-               prior sensitivity)
+  epistemic, aleatoric, modelbias, modelbias_strong (relocation fixed at 1.3),
+  modelbias_rod (relocation wrong and different for each rod),
+  modelbias_struct (rho, relocation, swelling linear in the rod power: structural bias),
+  epistemic_prior (epistemic with literature normal priors: prior sensitivity)
                steps 04 (standard), 05 (hierarchical), 06 (diagnostics),
                07 (post-processing), 08 (validation: chi2 on the 6 validation rods)
                and export of 93 posterior samples per method (Wilks 95/95, two-sided)
@@ -33,6 +35,11 @@ every output goes to results/ (results_quick/ with --quick).
 Before running, the old outputs of the selected stages are deleted, so that a new run never
 mixes with a previous one: with "all" (or "prepare") the whole data/ and results/ folders,
 otherwise only the folders of the selected stages. --keep disables the deletion.
+
+--continue-hc continues the last hierarchical chains of the selected cases instead of
+restarting them (only for HC files written by this version, which store the chain
+checkpoints), e.g. after a run at 50000 steps that did not converge:
+    python run_thesis_ch5.py modelbias_rod --n-cal 16 --hc-steps 100000 --continue-hc
 """
 
 from __future__ import annotations
@@ -48,7 +55,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 WF = HERE.parent.parent / "workflows"
-CASES = ["epistemic", "aleatoric", "modelbias", "epistemic_prior"]
+CASES = ["epistemic", "aleatoric", "modelbias", "modelbias_strong", "modelbias_rod", "modelbias_struct", "epistemic_prior"]
 STAGES = ["prepare", "correlation", "morris", "kernels", "gp", "sobol"] + CASES + ["figures"]
 N_WILKS = 93
 QUICK_N_CAL = 10
@@ -245,7 +252,13 @@ def main():
                          "e.g. --hc-steps 30000 50000")
     ap.add_argument("--keep", action="store_true",
                     help="do not delete the old outputs of the selected stages before running them")
+    ap.add_argument("--continue-hc", action="store_true",
+                    help="continue the last hierarchical chains of each selected case up to the "
+                         "longer lengths of --hc-steps (e.g. 50000 -> --hc-steps 100000) instead of "
+                         "starting again; implies --keep and skips step 04 when an SC result exists")
     args = ap.parse_args()
+    if args.continue_hc:
+        args.keep = True
     stages = STAGES if "all" in args.stages else args.stages
     bad = [s for s in stages if s not in STAGES]
     if bad:
@@ -302,8 +315,15 @@ def main():
             continue
         cfg = cfgs[name]
         print(f"\n=== {name.upper()} case")
-        for step in ("04_run_standard", "05_run_hierarchical"):
-            run([WF / f"{step}.py", cfg, "--no-progress"])
+        cal = results / name / "calibration"
+        if args.continue_hc and sorted(cal.glob("SC_*.h5")):
+            print(f"  standard calibration kept: {sorted(cal.glob('SC_*.h5'))[-1].name}")
+        else:
+            run([WF / "04_run_standard.py", cfg, "--no-progress"])
+        if args.continue_hc and sorted(cal.glob("HC_*.h5")):
+            run([WF / "05_run_hierarchical.py", cfg, "--no-progress", "--continue-from", "latest"])
+        else:
+            run([WF / "05_run_hierarchical.py", cfg, "--no-progress"])
         for step in ("06_diagnostics", "07_postprocessing", "08_validation"):
             run([WF / f"{step}.py", cfg])
         run([WF / "08_validation.py", cfg, "--export-samples", N_WILKS])

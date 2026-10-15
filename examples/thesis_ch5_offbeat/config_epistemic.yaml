@@ -62,7 +62,8 @@ hierarchical:
     start: 200               # covariance accumulated from iteration 200
     proposal_update_start: 400
     stop_before_burnin_end: 200   # proposal fixed from (burn-in - 200)
-    s_d: {mu: 0.5, sigma: 1.0, X: 0.7}   # default 2.4^2/d = 2.88 gave acceptance 0.09 (mu), 0.12 (X)
+    s_d: {mu: 0.12, sigma: 0.45, X: 0.3}  # sigma ~ 0 (no rod-to-rod variability): {0.5, 1.0, 0.7} gave
+                                          # acceptance 0.10-0.13 (mu), 0.25 (sigma), 0.13-0.16 (X) on 16 rods
   joint_shift_move: {enabled: true}
   joint_scale_move: {enabled: true}   # sigma and X - mu scaled together: mixing of sigma near 0 (funnel)
   store_logpost: true

@@ -1,0 +1,97 @@
+# =============================================================================
+#  Chapter 5 - case 3b: STRONG MODEL BIAS (dataset A)
+#  As case 3, but the relocation multiplier is fixed at 1.3 instead of 1.0
+#  (reality: 0.871, inputs/metadata.json); rho and swelling at the OFFBEAT default 1.0.
+#  Chosen with a grid scan of the standard posterior through the GPs: from relocation
+#  >= 1.2 the 95% interval of k no longer contains the true value, while the fit of
+#  the calibration data stays good (chi2_E ~ 1): the bias is compensated by k.
+#  Calibrated: UO2_k, UO2_alphaT (Sobol' indices: ST >= 0.01).
+#  Likelihood of rod i: N(y_i | GP_i(k, alphaT, rho_bias, reloc_bias, swell_bias), ...)
+# =============================================================================
+project:
+  name: ch5_modelbias_strong
+  output_dir: results/modelbias_strong
+  seed: 2026
+
+data:
+  input_file: data/input_data_A.h5
+  validation_cases: results/common/correlation/validation_split.csv
+
+synthetic: true
+synthetic_truth_file: data/synthetic_truth_A.h5
+
+parameters:                  # relocation 1.3, rho and swelling 1.0; reality = true vector A
+  UO2_rho:               {calibrate: false, fixed_value: 1.0}
+  UO2_k:                 {calibrate: true}
+  UO2_alphaT:            {calibrate: true}
+  UO2_epsilonRelocation: {calibrate: false, fixed_value: 1.3}
+  UO2_epsilonSwelling:   {calibrate: false, fixed_value: 1.0}
+
+labels:                      # display names in the figures
+  UO2_rho: 'UO$_2$ $\rho$'
+  UO2_k: 'UO$_2$ $k$'
+  UO2_alphaT: 'UO$_2$ $\alpha_T$'
+  UO2_epsilonRelocation: 'UO$_2$ relocation'
+  UO2_epsilonSwelling: 'UO$_2$ swelling'
+  QoI: 'FCT at EOL [K]'           # quantity of interest (axis labels)
+
+measurement_noise:
+  relative: 0.01             # 1% of the measured value (likelihood and validation)
+
+surrogate:
+  file: results/common/surrogates/surrogates.pkl   # GPs trained once with config_surrogates.yaml
+
+likelihood:
+  include_gp_variance: true
+
+# ---- Standard calibration (emcee): criteria of calibration_validation_criteria.xlsx ----
+standard:
+  stretch_a: 4.0             # acceptance range [0.2, 0.5]: 3.0 gave 0.52-0.59 (quick run), 4.0 gives 0.44
+  walker_multipliers: [2]    # 4 walkers (2 x 2 calibrated parameters)
+  nsteps_list: [10000, 30000, 50000, 100000, 150000]
+  stop_at_first_pass: true   # stop at the first length meeting the convergence criteria
+  burnin_fraction: 0.5
+
+# ---- Hierarchical calibration (MH-within-Gibbs) ----
+hierarchical:
+  n_chains: 4
+  parallel_chains: true
+  nsteps_list: [10000, 30000, 50000, 100000, 150000]
+  burnin_fraction: 0.5
+  dispersed_init: true
+  adaptation:                # Haario et al. (2001) on every block
+    mu: covariance
+    sigma: covariance
+    X: covariance
+    start: 200               # covariance accumulated from iteration 200
+    proposal_update_start: 400
+    stop_before_burnin_end: 200   # proposal fixed from (burn-in - 200)
+    s_d: {mu: 0.12, sigma: 0.45, X: 0.3}  # sigma ~ 0 (no rod-to-rod variability): {0.5, 1.0, 0.7} gave
+                                          # acceptance 0.10-0.13 (mu), 0.25 (sigma), 0.13-0.16 (X) on 16 rods
+  joint_shift_move: {enabled: true}
+  joint_scale_move: {enabled: true}   # sigma and X - mu scaled together: mixing of sigma near 0 (funnel)
+  store_logpost: true
+
+diagnostics:
+  rhat_max: 1.01
+  ess_per_chain: 100         # ESS >= 400 (4 chains / 4 walkers)
+  check_tail_ess: true       # hierarchical: tail-ESS >= 400 too
+  tau_factor: 50             # N >= 50 tau
+  standard_rhat: false       # emcee: walkers are not independent chains
+  standard_ess: autocorr     # emcee: ESS = N * n_walkers / tau
+  hierarchical_convergence_blocks: [mu, sigma]   # X[rod]: reported only
+  acceptance_range_standard: [0.2, 0.5]
+  acceptance_range_1d: [0.31, 0.57]              # mu_d, sigma_d (90% of the maximum efficiency)
+  acceptance_range_X: [0.23, 0.48]               # X[rod] with 2 parameters
+
+postprocessing:
+  mode: both
+  n_posterior_samples: 4000
+  case_plots: false          # 124 rods: per-rod plots disabled
+  show_reference_population: false
+
+validation:
+  run: true
+  source: surrogate          # chi2_E, chi2_tot, coverage through the GPs of the 6 validation rods
+  n_draws: 4000
+  interval_level: 0.95

@@ -186,3 +186,69 @@ def test_chi2_terms():
     t = chi2_terms([1000.0], [1050.0], [40.0], [5.0], [10.0])
     assert np.isclose(t["chi2_E_term"][0], 25.0)
     assert np.isclose(t["chi2_tot_term"][0], 2500 / (40 ** 2 + 5 ** 2 + 10 ** 2))
+
+
+class _ToyLik:
+    """Linear-Gaussian toy likelihood: y = x (one output per parameter), GP variance 0."""
+
+    def __init__(self, z, s):
+        self.z_meas, self.meas_cov, self._s = np.asarray(z, float), np.full(len(z), s ** 2), s
+
+    def predict(self, X, return_cov=True):
+        X = np.atleast_2d(X)
+        return X.copy(), np.zeros_like(X)
+
+    def __call__(self, x):
+        return float(np.sum(norm.logpdf(self.z_meas, np.asarray(x), self._s)))
+
+
+def _toy_hier_cfg():
+    cfg = _default_config()
+    h = cfg["hierarchical"]
+    h.update({"n_chains": 2, "parallel_chains": False, "nsteps": 400})
+    h["adaptation"].update({"start": 40, "proposal_update_start": 80, "window": 20})
+    h["joint_shift_move"].update({"enabled": True, "adapt_every": 20})
+    h["joint_scale_move"].update({"enabled": True, "adapt_every": 20})
+    return cfg
+
+
+def test_hierarchical_chain_continuation():
+    from abcf.calibration.hierarchical.runner import run_hierarchical
+    rng = np.random.default_rng(3)
+    true = rng.normal(0.3, 0.2, size=(6, 2))
+    liks = [_ToyLik(t + rng.normal(0, 0.05, 2), 0.05) for t in true]
+    ids = [f"c{e}" for e in range(6)]
+    lo, hi = np.full(2, -3.0), np.full(2, 3.0)
+    cfg = _toy_hier_cfg()
+
+    first = run_hierarchical(liks, ids, lo, hi, cfg, progress=False, nsteps=400)
+    frozen = [c["proposals"] for c in first["checkpoints"]]
+    cont = run_hierarchical(liks, ids, lo, hi, cfg, progress=False, nsteps=1000, previous=first)
+
+    # whole chain returned, first segment unchanged, burn-in recomputed on the total length
+    assert cont["mu"].shape == (2, 1000, 2) and cont["X"].shape == (2, 1000, 6, 2)
+    assert cont["nsteps"] == 1000 and cont["burnin"] == 500 and cont["continued_from"] == 400
+    assert np.array_equal(cont["mu"][:, :400], first["mu"])
+    # no further adaptation in the continued segment
+    for c, ck in enumerate(cont["checkpoints"]):
+        for (cov0, f0), (cov1, f1) in zip(frozen[c], ck["proposals"]):
+            assert np.allclose(cov0, cov1) and f0 == f1
+        assert np.allclose(ck["shift_std"], first["checkpoints"][c]["shift_std"])
+    # the continued chains sample the right posterior (population mean close to the data)
+    post_mu = cont["mu"][:, 500:].reshape(-1, 2).mean(axis=0)
+    assert np.all(np.abs(post_mu - true.mean(axis=0)) < 0.2)
+    # same total length: nothing to do
+    assert run_hierarchical(liks, ids, lo, hi, cfg, progress=False, nsteps=1000, previous=cont) is cont
+
+
+def test_emcee_continuation_matches_single_run():
+    from abcf.calibration.standard.emcee_runner import ContinuedEmcee
+    lp = lambda x: float(-0.5 * np.sum(x ** 2)) if np.all(np.abs(x) < 5) else -np.inf  # noqa: E731
+    a = ContinuedEmcee(lp, np.full(2, -5.0), np.full(2, 5.0), 8, 2.0, 0.5, seed=11)
+    r1 = a.extend(200)
+    r2 = a.extend(500)
+    assert r2["chains"].shape == (8, 500, 2) and r2["burnin"] == 250
+    assert np.array_equal(r2["chains"][:, :200], r1["chains"])
+    b = ContinuedEmcee(lp, np.full(2, -5.0), np.full(2, 5.0), 8, 2.0, 0.5, seed=11)
+    # a chain continued 200 -> 500 is the same chain as one run at once to 500
+    assert np.allclose(b.extend(500)["chains"], r2["chains"])

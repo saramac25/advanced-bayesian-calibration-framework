@@ -30,6 +30,5 @@ data/
 .DS_Store
 Thumbs.db
 
-# run logs
-log_*.txt
-*log*.txt
+# Chapter 5 example: rod powers derived from the TP3 histories (not committed)
+examples/thesis_ch5_offbeat/rod_power.csv

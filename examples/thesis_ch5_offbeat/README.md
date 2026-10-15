@@ -10,6 +10,9 @@ situations where the true parameters are known:
 | epistemic | dataset A (one true vector for all rods) | true values (common) | N(y_i \| GP_i(k, alphaT, theta_true)) |
 | aleatoric | dataset B (one true vector per rod) | true values of rod *i* | N(y_i \| GP_i(k, alphaT, theta_true,i)) |
 | model bias | dataset A | OFFBEAT default values (1.0), same for all rods, while the reality is the true vector A | N(y_i \| GP_i(k, alphaT, theta_default)) |
+| modelbias_strong | dataset A | relocation 1.3, rho and swelling 1.0 (same for all rods) | N(y_i \| GP_i(k, alphaT, theta_strong)) |
+| modelbias_rod | dataset A | relocation random per rod, N(1, 0.3^2) | N(y_i \| GP_i(k, alphaT, theta_rod,i)) |
+| modelbias_struct | dataset A | rho, relocation, swelling linear in the time-averaged LHGR of rod *i* (`make_modelbias_struct.py`): structural, power-dependent bias | N(y_i \| GP_i(k, alphaT, theta(P_i))) |
 
 The 130 rods share the Turkey Point 3 geometry and coolant temperature
 and use the power history (linear heat rate, axial profile, fast flux)
@@ -33,7 +36,7 @@ predictive variance is included in the likelihood of both methods.
 | `lhs_FCT_EOL.csv` | FCT at EOL [K] of the 600 runs, one column per rod (the same parameter samples for every rod). Empty cells: 314 of the 78 000 rod runs (0.4%, at most 13 per rod) stopped before the end of life, all at low conductivity, high thermal expansion and high relocation (the hottest corner of the domain); they are excluded for that rod only |
 | `synthetic_experiments.csv` | synthetic experiments: true parameters of every rod for datasets A and B, OFFBEAT FCT at EOL without (`FCT_EOL_model_K`) and with 1% Gaussian noise (`FCT_EOL_exp_K`) |
 | `metadata.json` | seed, distributions of the true values, true vector A, values of the model-bias case |
-| `morris_tabular.dat` | Dakota tabular of the Morris screening (psuade_moat, 17 OFFBEAT multipliers in [0.5, 1.5], 10 trajectories x 18 = 180 evaluations, 4 levels, seed 500), FCT at EOL of the 130 rods; empty = run stopped before the end of life. Partial file (completed evaluations, from dakota.rst) until the run is complete |
+| `morris_tabular.dat` | Dakota tabular of the Morris screening (psuade_moat, 17 OFFBEAT multipliers in [0.5, 1.5], 10 trajectories x 18 = 180 evaluations, 4 levels, seed 500), FCT at EOL of the 130 rods; empty = run stopped before the end of life (1360 of the 23 400 rod runs, 5.8%; 91.8% of the elementary effects available) |
 
 Distributions of the true values (multipliers of the OFFBEAT default). The
 widths come from the literature; the centres are moved away from the
@@ -99,6 +102,37 @@ python run_thesis_ch5.py figures                           # figures and tables
 | epistemic, aleatoric, modelbias | steps 04-08 of the framework + 93 posterior samples (Wilks 95/95 two-sided; the first 59 are enough for one-sided) to re-run OFFBEAT | `results/<case>/` |
 | epistemic_prior | the epistemic case again with literature normal priors on k and alphaT (N(1, 0.10^2), N(1, 0.075^2), Fiorina et al. 2022; standard: on theta, hierarchical: on mu), to show which results come from the data and which from the prior | `results/epistemic_prior/`, figure `prior_sensitivity_epistemic` |
 | figures | parameter comparison, traces, posterior predictive; summary tables | `results/figures/` |
+
+### Continuing chains instead of restarting them
+
+With `continue_chains: true` (default, standard and hierarchical blocks) a longer length of
+`nsteps_list` continues the chains of the previous length (10k -> 30k runs 20k new steps).
+Hierarchical: the proposals adapted during the burn-in of the first length are frozen and
+the random-number state is kept, so the continued chain is the same Markov chain run longer;
+the burn-in is always `burnin_fraction` x the total length. emcee (no adaptation): a
+continued ensemble is identical to one run at once (`tests/test_core.py`). Since this
+version the HC files also store the chain checkpoints, so a converged-or-not run can be
+continued later:
+
+```bash
+python run_thesis_ch5.py modelbias_struct --n-cal 16 --hc-steps 100000 --continue-hc
+```
+
+(`--continue-hc` keeps the SC result and continues the last HC file of the case; files written
+by older versions have no checkpoints and cannot be continued.)
+
+### Repetitions: coverage over 100 synthetic data sets (`repeat_ch5.py`)
+
+Same case, same rods, new 1% measurement noise in every repetition, fixed chain lengths
+(those of the converged reference run, not checked again); 95% intervals of SC, of the HC
+population mean and of the HC population predictive vs the true values ->
+`results/repeat_<case>/coverage.csv`, `repetitions.csv`. Each repetition uses 4 cores.
+
+```bash
+python repeat_ch5.py modelbias_strong --n-cal 16 --reps 100 --jobs 15 --hc-steps 50000 --sc-steps 10000 --sc-walkers 4
+python run_thesis_ch5.py modelbias_struct --n-cal 16 --hc-steps 10000 30000 50000 100000   # reference run
+python repeat_ch5.py modelbias_struct --n-cal 16 --reps 100 --jobs 15                       # its lengths
+```
 
 Kernel of the GPs: if the stage `kernels` has been run, the stage `gp`
 uses the recommended kernel (lowest NLPD among the kernels whose

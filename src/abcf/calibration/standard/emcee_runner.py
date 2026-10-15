@@ -62,6 +62,37 @@ def run_emcee(log_prob, lower, upper, nwalkers: int, nsteps: int, stretch_a: flo
             "stretch_a": stretch_a, "seed": seed}
 
 
+class ContinuedEmcee:
+    """One emcee ensemble extended to increasing lengths (``standard.continue_chains``):
+    ``extend(n)`` runs only the steps missing to reach n in total and returns the run dict
+    of the whole chain (burn-in = burnin_fraction x total length). The stretch move has
+    no adaptation, so a continued chain is identical in law to a chain run at once."""
+
+    def __init__(self, log_prob, lower, upper, nwalkers: int, stretch_a: float,
+                 burnin_fraction: float, seed: int):
+        ndim = len(lower)
+        rng = np.random.default_rng(seed)
+        self.p0 = rng.uniform(lower, upper, size=(nwalkers, ndim))
+        np.random.seed(seed)
+        self.sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob,
+                                             moves=emcee.moves.StretchMove(a=stretch_a))
+        self.nwalkers, self.stretch_a, self.f, self.seed = nwalkers, stretch_a, burnin_fraction, seed
+        self.done, self.wall = 0, 0.0
+
+    def extend(self, nsteps: int, progress: bool = False) -> dict:
+        n_new = nsteps - self.done
+        if n_new > 0:
+            t0 = time.time()
+            self.sampler.run_mcmc(self.p0 if self.done == 0 else None, n_new, progress=progress)
+            self.wall += time.time() - t0
+            self.done = nsteps
+        chains = np.transpose(self.sampler.get_chain(), (1, 0, 2))
+        return {"chains": chains, "log_prob": self.sampler.get_log_prob().T,
+                "burnin": int(round(self.f * nsteps)), "nwalkers": self.nwalkers, "nsteps": nsteps,
+                "acceptance": self.sampler.acceptance_fraction, "wall_clock_s": self.wall,
+                "stretch_a": self.stretch_a, "seed": self.seed}
+
+
 def _passes(run: dict, cfg: dict, use_ess: bool) -> tuple:
     """(ok, rows, acceptance, advice). ``use_ess=False`` (walker tuning): only R-hat and
     acceptance. With ``use_ess``, every active criterion of ``diagnostics``."""
@@ -127,9 +158,17 @@ def tune_and_run(log_prob, lower, upper, cfg: dict, n_dim: int, progress: bool =
     # Step 2: number of steps
     runs = []
     lengths = sorted(s["nsteps_list"]) if s.get("stop_at_first_pass") else list(s["nsteps_list"])
+    cont = bool(s.get("continue_chains", True)) and s.get("stop_at_first_pass")
+    ens = ContinuedEmcee(log_prob, lower, upper, nwalkers, s["stretch_a"], s["burnin_fraction"],
+                         seed + 1000 + lengths[0]) if cont else None
+    if cont and len(lengths) > 1:
+        print("  longer lengths continue the previous walkers (standard.continue_chains)")
     for n in lengths:
-        run = run_emcee(log_prob, lower, upper, nwalkers, n, s["stretch_a"],
-                        s["burnin_fraction"], seed + 1000 + n, progress)
+        if cont:
+            run = ens.extend(n, progress)
+        else:
+            run = run_emcee(log_prob, lower, upper, nwalkers, n, s["stretch_a"],
+                            s["burnin_fraction"], seed + 1000 + n, progress)
         ok, d, acc, advice, conv = _passes(run, cfg, use_ess=True)
         record("2_steps", run, ok, d, acc, advice, conv)
         runs.append((ok, run, advice, conv))

@@ -20,16 +20,16 @@ dummy numbers, to run the whole pipeline without the IFPE data (`--facsimile`).
 | Surrogates | one GP per component and case; kernel chosen by the comparison of 5 kernels (stage `kernels`) |
 | Measurement uncertainty | 1% of the measured temperature (as in the synthetic cases) |
 | Validation | 6 cases with the lowest maximum correlation with the other cases (step 02), through their GPs (chi2_E, chi2_tot, coverage) + 93 posterior samples to re-run TRANSURANUS (Wilks 95/95) |
-| Calibrated parameters | `config_tu.yaml`; to be confirmed with the stages `correlation` (influential in all cases) and `sobol` (ST >= 0.01) |
+| Calibrated parameters | `config_tu.yaml`: the parameters influential (Spearman, BH-FDR, rho^2 >= 0.01) in all cases (stage `correlation`): lambda_a1, lambda_b0. Sobol' indices (stage `sobol`, optional) are not used for the choice: unlike the OFFBEAT models, no literature uncertainty is available for the individual TRANSURANUS coefficients, and the indices would only reflect the ranges of the training runs |
 
 ## Run
 
 ```bash
 python run_thesis_tu.py all --facsimile --quick          # pipeline check on dummy data (minutes)
 python run_thesis_tu.py prepare --h5 <path>/results.h5   # real data -> data/input_data.h5
-python run_thesis_tu.py correlation kernels gp sobol     # common part
-#   -> check results/common/correlation/input_output_summary.csv and
-#      results/common/sobol/sobol_summary.csv, edit the parameters block of config_tu.yaml
+python run_thesis_tu.py correlation kernels gp           # common part
+#   -> check results/common/correlation/input_output_summary.csv (influential in all cases)
+#      and the parameters block of config_tu.yaml
 python run_thesis_tu.py calibration                      # steps 04-08 (lengths 10k -> 100k, continued)
 python run_thesis_tu.py calibration --hc-steps 150000 --continue-hc   # longer, without restarting
 ```

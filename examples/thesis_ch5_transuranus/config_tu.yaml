@@ -2,9 +2,9 @@
 #  Chapter 5 - TRANSURANUS / Halden (IFPE): calibration on the real thermocouple data
 #  Same settings and criteria as the OFFBEAT case studies. Real data: no true values
 #  (synthetic: false); aleatoric variability and model bias are not separable.
-#  Calibrated parameters: decided with the stages "correlation" (Spearman, significant in
-#  the calibration cases) and "sobol" (ST >= 0.01) -> CHECK after those stages and edit
-#  the parameters block if needed (previous study: lambda_a1, lambda_b0).
+#  Calibrated parameters: influential in ALL cases in the Spearman screening of step 02
+#  (BH-FDR, rho^2 >= 0.01 on at least one principal component): lambda_a1, lambda_b0
+#  (delg_f: 84% of the cases, gapcon_f: 58%, lambda_b2: none -> fixed at the nominal value).
 # =============================================================================
 project:
   name: ch5_tu

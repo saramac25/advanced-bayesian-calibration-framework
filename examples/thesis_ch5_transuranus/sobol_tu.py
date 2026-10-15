@@ -12,6 +12,15 @@ index of the history is the variance-weighted mean of the per-component indices
 A parameter acting only on a minor component (e.g. the late, burnup-dependent shape) gets a
 large ST_k there but a small GST: both are reported; the decision uses GST.
 
+To read the indices in kelvin (with --data, the framework input file): the components are
+orthonormal, so sum_k Var(z_k) is the sum over the n_t points of the variance of the
+temperature, and the root-mean-square (over time) standard deviation of the temperature
+due to parameter i, with its interactions, is
+    sigma_i = sqrt(GST_i sum_k Var(z_k) / n_t)        [K]
+compared with the measurement uncertainty sigma_exp = rel_noise x RMS(measurement) [K].
+sigma_i / sigma_exp < 1: the effect of the parameter is below the measurement uncertainty
+and the data can hardly inform it.
+
 No literature uncertainty is available for these multipliers: the input distributions are
 uniform over the ranges of the Dakota training runs (gap conductance [0.8, 1.2], the other
 multipliers [0.5, 1.5]), i.e. the same prior as the calibration. ST >= --threshold ->
@@ -44,6 +53,8 @@ def main():
     ap.add_argument("--config", default=str(HERE / "config_tu.yaml"))
     ap.add_argument("--n-base", type=int, default=1024)
     ap.add_argument("--threshold", type=float, default=0.01)
+    ap.add_argument("--data", default=None, help="input_data.h5: n_t and measurements, for sigma_i in K")
+    ap.add_argument("--rel-noise", type=float, default=0.01, help="relative measurement uncertainty")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -75,17 +86,37 @@ def main():
         w = var / var.sum()
         for i, p in enumerate(names):          # generalised indices of the whole history
             rows.append({"case": cid, "parameter": p, "S1": float(w @ s1[:, i]), "ST": float(w @ st[:, i]),
+                         "var_scores_sum": float(var.sum()),
                          "n_components": Z.shape[1]})
     pd.DataFrame(per_pc).to_csv(out / "sobol_per_case_and_component.csv", index=False)
     table = pd.DataFrame(rows)
+    if args.data:
+        from abcf.io import load_input_data
+        d = load_input_data(args.data, "all")
+        n_t = {c: d.cases[c].meas.size for c in d.cases}
+        s_exp = {c: args.rel_noise * float(np.sqrt(np.mean(d.cases[c].meas ** 2))) for c in d.cases}
+        table["sigma_i_K"] = np.sqrt(table["ST"].clip(lower=0) * table["var_scores_sum"] / table["case"].map(n_t))
+        table["sigma_exp_K"] = table["case"].map(s_exp)
+        table["ratio_to_sigma_exp"] = table["sigma_i_K"] / table["sigma_exp_K"]
     table.to_csv(out / "sobol_per_case.csv", index=False)
     summ = sobol_summary(table, args.threshold)
+    if "sigma_i_K" in table:
+        g = table.groupby("parameter")
+        summ["sigma_i_K_mean"] = g["sigma_i_K"].mean()
+        summ["sigma_exp_K_mean"] = g["sigma_exp_K"].mean()
+        summ["ratio_mean"] = g["ratio_to_sigma_exp"].mean()
+        summ["ratio_q97_5"] = g["ratio_to_sigma_exp"].quantile(0.975)
+        summ["n_cases_ratio_ge_1"] = g["ratio_to_sigma_exp"].apply(lambda r: int((r >= 1).sum()))
     summ["calibrated_in_config"] = summ.index.isin(calibrated)
     summ.to_csv(out / "sobol_summary.csv")
     print(f"Generalised Sobol' indices (PCA scores, variance-weighted) on {table['case'].nunique()} cases, "
           f"uniform inputs over the training ranges, {args.n_base} base samples")
-    print(summ[["S1_mean", "ST_mean", "ST_q2_5", "ST_q97_5", "suggestion", "calibrated_in_config"]]
-          .to_string(float_format="%.4f"))
+    cols = ["S1_mean", "ST_mean", "ST_q2_5", "ST_q97_5", "suggestion", "calibrated_in_config"]
+    print(summ[cols].to_string(float_format="%.4f"))
+    if "sigma_i_K_mean" in summ:
+        print("\nIn kelvin (RMS over time): sigma_i = sqrt(GST Var), vs measurement uncertainty sigma_exp")
+        print(summ[["sigma_i_K_mean", "sigma_exp_K_mean", "ratio_mean", "ratio_q97_5", "n_cases_ratio_ge_1"]]
+              .to_string(float_format="%.3f"))
 
     order = list(summ.index)[::-1]
     floor = 1e-4

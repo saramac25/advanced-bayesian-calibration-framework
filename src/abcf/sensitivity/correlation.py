@@ -52,6 +52,9 @@ def case_outputs(data: InputData, pca_variance: float) -> dict:
         cols = ["QoI"] if case.is_scalar else [f"PC{k + 1}" for k in range(Z.shape[1])]
         df = pd.DataFrame(Z, index=case.eval_ids, columns=cols)
         df.attrs["explained_variance"] = float(np.sum(red.explained_variance_ratio))
+        # share of the retained variance carried by each output (1 for a scalar QoI)
+        v = np.asarray(Z, float).var(axis=0)
+        df.attrs["variance_share"] = dict(zip(cols, (v / v.sum()).tolist() if v.sum() > 0 else [1.0] * len(cols)))
         out[cid] = df
     return out
 
@@ -67,6 +70,7 @@ def input_output(data: InputData, outputs: dict, cfg_c: dict) -> pd.DataFrame:
                 rho, pval = stats.spearmanr(X[p].values, Y[o].values)
                 r, _ = stats.pearsonr(X[p].values, Y[o].values)
                 block.append({"case": cid, "parameter": p, "output": o, "n_samples": len(Y),
+                              "variance_share": float(Y.attrs.get("variance_share", {}).get(o, 1.0)),
                               "spearman_rho": rho, "rho_squared": rho ** 2, "p_value": pval,
                               "pearson_r": r})
         pvals = np.array([b["p_value"] for b in block])
@@ -82,16 +86,29 @@ def input_output(data: InputData, outputs: dict, cfg_c: dict) -> pd.DataFrame:
 
 def input_output_summary(io_table: pd.DataFrame) -> pd.DataFrame:
     """Per parameter, across cases: fraction of influential cases, mean and minimum rho^2
-    (largest rho^2 over the outputs of each case)."""
-    per_case = (io_table.groupby(["parameter", "case"])
-                .agg(max_rho_squared=("rho_squared", "max"), influential=("influential", "any"))
+    (largest rho^2 over the outputs of each case), and the variance-weighted rho^2
+    sum_k w_k rho_k^2 (w_k = share of the retained variance of output k, i.e. of the PCA
+    component; = rho^2 for a scalar QoI). The weighted value is the rank-correlation
+    counterpart of the generalised first-order Sobol' index of the whole time history
+    (Lamboni et al. 2011): for a linear model with independent inputs the weighted
+    Pearson r^2 equals it exactly."""
+    t = io_table.copy()
+    if "variance_share" not in t:
+        t["variance_share"] = 1.0
+    t["w_rho_squared"] = t["variance_share"] * t["rho_squared"]
+    per_case = (t.groupby(["parameter", "case"])
+                .agg(max_rho_squared=("rho_squared", "max"), weighted_rho_squared=("w_rho_squared", "sum"),
+                     influential=("influential", "any"))
                 .reset_index())
 
     def agg(g):
         return pd.Series({"fraction_cases_influential": g["influential"].mean(),
                           "influential_in_all_cases": bool(g["influential"].all()),
                           "mean_rho_squared": float(g["max_rho_squared"].mean()),
-                          "min_rho_squared": float(g["max_rho_squared"].min()), "n_cases": len(g)})
+                          "min_rho_squared": float(g["max_rho_squared"].min()),
+                          "mean_weighted_rho_squared": float(g["weighted_rho_squared"].mean()),
+                          "min_weighted_rho_squared": float(g["weighted_rho_squared"].min()),
+                          "n_cases": len(g)})
 
     return (per_case.groupby("parameter").apply(agg, include_groups=False)
             .sort_values(["fraction_cases_influential", "mean_rho_squared"], ascending=False))

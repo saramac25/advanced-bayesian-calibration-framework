@@ -6,7 +6,7 @@ results.h5 (stage prepare, --h5) and never committed. --facsimile runs everythin
 data with the same layout (make_facsimile.py), to test the pipeline without the IFPE data.
 
     python run_thesis_tu.py prepare --h5 <path>/results.h5     # -> data/input_data.h5
-    python run_thesis_tu.py correlation kernels gp sobol         # common part
+    python run_thesis_tu.py correlation kernels gp               # common part
     python run_thesis_tu.py calibration                          # steps 04-08 + 93 samples
     python run_thesis_tu.py all --h5 <path>/results.h5           # everything
     python run_thesis_tu.py all --facsimile --quick              # pipeline check on dummy data
@@ -17,7 +17,7 @@ Stages
                -> 6 validation cases (results/common/correlation/validation_split.csv)
   kernels      step 03 --compare-kernels: 5 GP kernels compared on the test runs
   gp           step 03: PCA (99% of the variance) + one GP per component and case
-  sobol        Sobol' indices of the 5 multipliers on the PCA scores (per component and
+  sobol        OPTIONAL, not in "all": Sobol' indices of the 5 multipliers on the PCA scores (per component and
                variance-weighted over the components): which to calibrate
   calibration  steps 04 (standard), 05 (hierarchical), 06 (diagnostics), 07 (post-processing),
                08 (validation through the GPs of the 6 validation cases) and export of 93
@@ -156,7 +156,9 @@ def main():
     ap.add_argument("--continue-hc", action="store_true",
                     help="continue the last hierarchical chains (implies --keep, keeps the SC result)")
     args = ap.parse_args()
-    stages = STAGES if "all" in args.stages else args.stages
+    # "all" = the thesis pipeline; sobol is optional (no literature uncertainty is available for
+    # the TRANSURANUS coefficients, so the parameters are chosen with the Spearman screening)
+    stages = [s for s in STAGES if s != "sobol"] if "all" in args.stages else args.stages
     bad = [s for s in stages if s not in STAGES]
     if bad:
         sys.exit(f"Unknown stage(s) {bad}; valid: all, {', '.join(STAGES)}")
@@ -197,7 +199,8 @@ def main():
     if "sobol" in stages:
         print("\n=== Sobol' indices of the 5 multipliers")
         run([HERE / "sobol_tu.py", "--surrogates", results / "common" / "surrogates" / "surrogates.pkl",
-             "--out", results / "common" / "sobol", "--n-base", 256 if args.quick else 1024])
+             "--out", results / "common" / "sobol", "--n-base", 256 if args.quick else 1024,
+             "--data", data_file])
 
     if "calibration" in stages:
         cal = calibration_subset(results, args.n_cal) if args.n_cal else None

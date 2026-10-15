@@ -32,3 +32,6 @@ Thumbs.db
 
 # Chapter 5 example: rod powers derived from the TP3 histories (not committed)
 examples/thesis_ch5_offbeat/rod_power.csv
+
+# Chapter 5 TRANSURANUS example: dummy-data results
+results_facsimile/

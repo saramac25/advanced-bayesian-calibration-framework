@@ -1,0 +1,91 @@
+# =============================================================================
+#  Chapter 5 - TRANSURANUS / Halden (IFPE): calibration on the real thermocouple data
+#  Same settings and criteria as the OFFBEAT case studies. Real data: no true values
+#  (synthetic: false); aleatoric variability and model bias are not separable.
+#  Calibrated parameters: decided with the stages "correlation" (Spearman, significant in
+#  the calibration cases) and "sobol" (ST >= 0.01) -> CHECK after those stages and edit
+#  the parameters block if needed (previous study: lambda_a1, lambda_b0).
+# =============================================================================
+project:
+  name: ch5_tu
+  output_dir: results/tu
+  seed: 2026
+
+data:
+  input_file: data/input_data.h5
+  validation_cases: results/common/correlation/validation_split.csv
+
+synthetic: false
+
+parameters:                  # fixed_value: nominal TRANSURANUS model (multiplier 1)
+  cal_gapcon_f:  {calibrate: false, fixed_value: 1.0}
+  cal_lambda_a1: {calibrate: true}
+  cal_lambda_b0: {calibrate: true}
+  cal_lambda_b2: {calibrate: false, fixed_value: 1.0}
+  cal_delg_f:    {calibrate: false, fixed_value: 1.0}
+
+labels:
+  cal_gapcon_f:  'gap conductance $f_{gap}$'
+  cal_lambda_a1: '$\lambda$ $a_1$'
+  cal_lambda_b0: '$\lambda$ $b_0$'
+  cal_lambda_b2: '$\lambda$ $b_2$'
+  cal_delg_f:    '$\Delta g$ $f$'
+  QoI: 'Fuel centreline temperature [K]'
+
+measurement_noise:
+  relative: 0.01             # 1% of the measured temperature, as in the synthetic cases
+
+surrogate:
+  file: results/common/surrogates/surrogates.pkl   # GPs trained once with config_surrogates.yaml
+
+likelihood:
+  include_gp_variance: true
+
+standard:
+  stretch_a: 4.0
+  walker_multipliers: [2]    # 4 walkers (2 x 2 calibrated parameters)
+  nsteps_list: [10000, 30000, 50000, 100000]
+  stop_at_first_pass: true
+  burnin_fraction: 0.5
+
+hierarchical:
+  n_chains: 4
+  parallel_chains: true
+  nsteps_list: [10000, 30000, 50000, 100000]
+  burnin_fraction: 0.5
+  dispersed_init: true
+  adaptation:                # Haario et al. (2001) on every block
+    mu: covariance
+    sigma: covariance
+    X: covariance
+    start: 200
+    proposal_update_start: 400
+    stop_before_burnin_end: 200
+    s_d: {mu: 0.5, sigma: 1.0, X: 0.7}   # as the OFFBEAT cases with rod-to-rod variability; CHECK step 06
+  joint_shift_move: {enabled: true}
+  joint_scale_move: {enabled: true}
+  store_logpost: true
+
+diagnostics:
+  rhat_max: 1.01
+  ess_per_chain: 100
+  check_tail_ess: true
+  tau_factor: 50
+  standard_rhat: false
+  standard_ess: autocorr
+  hierarchical_convergence_blocks: [mu, sigma]
+  acceptance_range_standard: [0.2, 0.5]
+  acceptance_range_1d: [0.31, 0.57]
+  acceptance_range_X: [0.23, 0.48]
+
+postprocessing:
+  mode: both
+  n_posterior_samples: 4000
+  case_plots: true           # time histories of every case (measurement, prior and posterior bands)
+  show_reference_population: false
+
+validation:
+  run: true
+  source: surrogate          # chi2_E, chi2_tot, coverage through the GPs of the 6 validation cases
+  n_draws: 4000
+  interval_level: 0.95

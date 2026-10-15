@@ -1,0 +1,58 @@
+# =============================================================================
+#  Chapter 5 - TRANSURANUS / Halden (IFPE), common steps: same pipeline as the
+#  OFFBEAT case studies (examples/thesis_ch5_offbeat/config_surrogates.yaml)
+#    step 02: input-output Spearman (parameters vs PCA scores, BH-FDR) and
+#             output-output correlation between cases -> 6 validation cases
+#    step 03: kernel comparison and GP training (PCA 99% + one GP per component)
+#  QoI: fuel centreline temperature history of every thermocouple (case = rod and
+#  axial node), steady-state points >= 400 K (prepare_data.py).
+# =============================================================================
+project:
+  name: ch5_tu_common
+  output_dir: results/common
+  seed: 2026
+
+data:
+  input_file: data/input_data.h5     # prepare_data.py (IFPE data: never committed)
+
+# Calibration status is irrelevant for steps 02-03; the GPs use all 5 parameters.
+parameters:
+  cal_gapcon_f:  {calibrate: false, fixed_value: 1.0}
+  cal_lambda_a1: {calibrate: true}
+  cal_lambda_b0: {calibrate: true}
+  cal_lambda_b2: {calibrate: false, fixed_value: 1.0}
+  cal_delg_f:    {calibrate: false, fixed_value: 1.0}
+
+labels:
+  cal_gapcon_f:  'gap conductance $f_{gap}$'
+  cal_lambda_a1: '$\lambda$ $a_1$'
+  cal_lambda_b0: '$\lambda$ $b_0$'
+  cal_lambda_b2: '$\lambda$ $b_2$'
+  cal_delg_f:    '$\Delta g$ $f$'
+  QoI: 'Fuel centreline temperature [K]'
+
+sensitivity:
+  correlation:
+    alpha: 0.05              # two-sided Spearman tests
+    fdr_method: fdr_bh       # Benjamini-Hochberg
+    n_validation: 6          # the 6 cases with the lowest maximum significant rho^2 -> validation
+
+surrogate:
+  file: results/common/surrogates/surrogates.pkl
+  test_fraction: 0.2         # 80/20 split of the valid runs of each case (~240 / 60)
+  pca_variance: 0.99         # number of principal components: 99% of the variance (as before)
+  kernel:                    # default; the stage "gp" uses the kernel recommended by the comparison
+    terms: [rbf]
+    white_noise: true
+    length_scale_bounds: [1.0e-3, 1.0e+5]
+  alpha_grid: null
+  alpha_fixed: 1.0e-6
+  n_restarts_optimizer: 3
+  refit_on_bound: true
+  kernel_candidates:         # as for OFFBEAT: amplitude C x kernel, ARD length scales
+    rbf:                {terms: [rbf], white_noise: false}
+    matern52:           {terms: [matern], matern_nu: 2.5, white_noise: false}
+    rbf_white:          {terms: [rbf], white_noise: true}
+    matern52_white:     {terms: [matern], matern_nu: 2.5, white_noise: true}
+    matern32_rq_white:  {terms: [matern, rational_quadratic], combine: sum, matern_nu: 1.5, white_noise: true}
+  kernel_comparison_cases: all

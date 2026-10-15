@@ -39,13 +39,14 @@ from abcf.postprocessing.posterior import Posterior  # noqa: E402
 from abcf.workflow import calibration_cases, latest_result, load_all  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-CASES = ["epistemic", "aleatoric", "modelbias", "modelbias_strong", "modelbias_rod", "modelbias_struct", "modelbias_struct_k", "epistemic_prior"]
+CASES = ["epistemic", "aleatoric", "modelbias", "modelbias_strong", "modelbias_rod", "modelbias_struct", "modelbias_struct_k", "modelbias_uniform_k", "epistemic_prior"]
 CASE_TITLE = {"epistemic": "Epistemic uncertainty", "aleatoric": "Aleatoric uncertainty",
               "modelbias": "Model bias",
               "modelbias_strong": "Model bias, relocation 1.3",
               "modelbias_rod": "Model bias varying between rods",
               "modelbias_struct": "Model bias dependent on rod power",
               "modelbias_struct_k": "Model bias dependent on rod power, k only",
+              "modelbias_uniform_k": "Uniform model bias, k only",
               "epistemic_prior": "Epistemic uncertainty, literature priors"}
 RUG_H, RUG_LW = 0.25, 1.5     # true-value rug lines: height (fraction of the y axis) and width, all cases
 ORDER = ["UO2_k", "UO2_alphaT"]                   # k left, alphaT right

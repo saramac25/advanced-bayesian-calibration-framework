@@ -1,0 +1,93 @@
+# =============================================================================
+#  Chapter 5 - case 3f: UNIFORM MODEL BIAS, ONLY k CALIBRATED (dataset A)
+#  Same as modelbias_struct_k with zero power slope: rho, relocation, swelling and alphaT
+#  at the OFFBEAT default 1.0 for every rod (reality: true vector A). The two model-bias
+#  cases differ only in the dependence of the bias on the rod power, so that their
+#  comparison isolates the effect of the structure of the bias.
+# =============================================================================
+project:
+  name: ch5_modelbias_uniform_k
+  output_dir: results/modelbias_uniform_k
+  seed: 2026
+
+data:
+  input_file: data/input_data_A.h5
+  validation_cases: results/common/correlation/validation_split.csv
+
+synthetic: true
+synthetic_truth_file: data/synthetic_truth_A.h5
+
+parameters:                  # per-rod values from fixed_values_file (fixed_value: new rod only)
+  UO2_rho:               {calibrate: false, fixed_value: 1.0}
+  UO2_k:                 {calibrate: true}
+  UO2_alphaT:            {calibrate: false, fixed_value: 1.0}
+  UO2_epsilonRelocation: {calibrate: false, fixed_value: 1.0}
+  UO2_epsilonSwelling:   {calibrate: false, fixed_value: 1.0}
+
+labels:                      # display names in the figures
+  UO2_rho: 'UO$_2$ $\rho$'
+  UO2_k: 'UO$_2$ $k$'
+  UO2_alphaT: 'UO$_2$ $\alpha_T$'
+  UO2_epsilonRelocation: 'UO$_2$ relocation'
+  UO2_epsilonSwelling: 'UO$_2$ swelling'
+  QoI: 'FCT at EOL [K]'           # quantity of interest (axis labels)
+
+measurement_noise:
+  relative: 0.01             # 1% of the measured value (likelihood and validation)
+
+surrogate:
+  file: results/common/surrogates/surrogates.pkl   # GPs trained once with config_surrogates.yaml
+
+likelihood:
+  include_gp_variance: true
+
+# ---- Standard calibration (emcee): criteria of calibration_validation_criteria.xlsx ----
+standard:
+  stretch_a: 10.0            # one parameter: acceptance 0.45 (a = 2 gave 0.82; 1D Gaussian test: a = 8, 10, 15 -> 0.49, 0.45, 0.38)
+  walker_multipliers: [4]    # 4 walkers (4 x 1 calibrated parameter)
+  nsteps_list: [10000, 30000, 50000]
+  stop_at_first_pass: true   # stop at the first length meeting the convergence criteria
+  burnin_fraction: 0.5
+
+# ---- Hierarchical calibration (MH-within-Gibbs) ----
+hierarchical:
+  n_chains: 4
+  parallel_chains: true
+  nsteps_list: [10000, 30000, 50000]
+  burnin_fraction: 0.5
+  dispersed_init: true
+  adaptation:                # Haario et al. (2001) on every block
+    mu: covariance
+    sigma: covariance
+    X: covariance
+    start: 200               # covariance accumulated from iteration 200
+    proposal_update_start: 400
+    stop_before_burnin_end: 200   # proposal fixed from (burn-in - 200)
+    s_d: {mu: 0.8, sigma: 0.4, X: 3.4}   # sigma ~ 0 (uniform bias): {4.0, 1.5, 5.66} of modelbias_struct_k gave acceptance 0.18 (mu), 0.21 (sigma), 0.28-0.31 (X) (test 16 rods, 6000 steps); scaled down
+  joint_shift_move: {enabled: true}
+  joint_scale_move: {enabled: true}   # sigma and X - mu scaled together: mixing of sigma near 0 (funnel)
+  store_logpost: true
+
+diagnostics:
+  rhat_max: 1.01
+  ess_per_chain: 100         # ESS >= 400 (4 chains / 4 walkers)
+  check_tail_ess: true       # hierarchical: tail-ESS >= 400 too
+  tau_factor: 50             # N >= 50 tau
+  standard_rhat: false       # emcee: walkers are not independent chains
+  standard_ess: autocorr     # emcee: ESS = N * n_walkers / tau
+  hierarchical_convergence_blocks: [mu, sigma]   # X[rod]: reported only
+  acceptance_range_standard: [0.2, 0.5]
+  acceptance_range_1d: [0.31, 0.57]              # mu_d, sigma_d (90% of the maximum efficiency)
+  acceptance_range_X: [0.31, 0.57]               # X[rod] with 1 parameter
+
+postprocessing:
+  mode: both
+  n_posterior_samples: 4000
+  case_plots: false          # 124 rods: per-rod plots disabled
+  show_reference_population: false
+
+validation:
+  run: true
+  source: surrogate          # chi2_E, chi2_tot, coverage through the GPs of the 6 validation rods
+  n_draws: 4000
+  interval_level: 0.95

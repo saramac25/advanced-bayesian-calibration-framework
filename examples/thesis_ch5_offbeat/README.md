@@ -13,6 +13,7 @@ situations where the true parameters are known:
 | modelbias_strong | dataset A | relocation 1.3, rho and swelling 1.0 (same for all rods) | N(y_i \| GP_i(k, alphaT, theta_strong)) |
 | modelbias_rod | dataset A | relocation random per rod, N(1, 0.3^2) | N(y_i \| GP_i(k, alphaT, theta_rod,i)) |
 | modelbias_struct | dataset A | rho, relocation, swelling linear in the time-averaged LHGR of rod *i* (`make_modelbias_struct.py`): structural, power-dependent bias | N(y_i \| GP_i(k, alphaT, theta(P_i))) |
+| modelbias_struct_k | dataset A | as modelbias_struct (slope 0.2), alphaT fixed at 1.0: only k calibrated | N(y_i \| GP_i(k, alphaT = 1, theta(P_i))) |
 
 The 130 rods share the Turkey Point 3 geometry and coolant temperature
 and use the power history (linear heat rate, axial profile, fast flux)

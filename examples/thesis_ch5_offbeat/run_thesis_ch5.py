@@ -23,6 +23,7 @@ Stages
   epistemic, aleatoric, modelbias, modelbias_strong (relocation fixed at 1.3),
   modelbias_rod (relocation wrong and different for each rod),
   modelbias_struct (rho, relocation, swelling linear in the rod power: structural bias),
+  modelbias_struct_k (the same with slope 0.2, alphaT fixed at 1.0, only k calibrated),
   epistemic_prior (epistemic with literature normal priors: prior sensitivity)
                steps 04 (standard), 05 (hierarchical), 06 (diagnostics),
                07 (post-processing), 08 (validation: chi2 on the 6 validation rods)
@@ -55,7 +56,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 WF = HERE.parent.parent / "workflows"
-CASES = ["epistemic", "aleatoric", "modelbias", "modelbias_strong", "modelbias_rod", "modelbias_struct", "epistemic_prior"]
+CASES = ["epistemic", "aleatoric", "modelbias", "modelbias_strong", "modelbias_rod", "modelbias_struct", "modelbias_struct_k", "epistemic_prior"]
 STAGES = ["prepare", "correlation", "morris", "kernels", "gp", "sobol"] + CASES + ["figures"]
 N_WILKS = 93
 QUICK_N_CAL = 10

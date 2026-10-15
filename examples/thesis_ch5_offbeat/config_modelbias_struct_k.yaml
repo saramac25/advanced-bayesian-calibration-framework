@@ -1,0 +1,97 @@
+# =============================================================================
+#  Chapter 5 - case 3e: STRUCTURAL MODEL BIAS, ONLY k CALIBRATED (dataset A)
+#  As modelbias_struct, but alphaT is NOT calibrated (fixed at the OFFBEAT default 1.0,
+#  reality 0.922) and the power slope of relocation and swelling is 0.2 per kW/m:
+#    relocation = swelling = 1 + 0.2 (P - 16.5 kW/m),  rho = 1 + 0.005 (P - 16.5 kW/m)
+#  (inputs/fixed_values_modelbias_struct_k.csv; calibration rods: 0.63-1.24).
+#  In modelbias_struct the power-dependent part of the bias is absorbed by alphaT (pushed to
+#  its upper bound), so neither formulation recovers k; with k alone, the rod-to-rod
+#  part of the bias can only be represented by the population spread sigma_k.
+# =============================================================================
+project:
+  name: ch5_modelbias_struct_k
+  output_dir: results/modelbias_struct_k
+  seed: 2026
+
+data:
+  input_file: data/input_data_A.h5
+  validation_cases: results/common/correlation/validation_split.csv
+  fixed_values_file: inputs/fixed_values_modelbias_struct_k.csv   # per-rod rho, relocation, swelling
+
+synthetic: true
+synthetic_truth_file: data/synthetic_truth_A.h5
+
+parameters:                  # per-rod values from fixed_values_file (fixed_value: new rod only)
+  UO2_rho:               {calibrate: false, fixed_value: 1.0}
+  UO2_k:                 {calibrate: true}
+  UO2_alphaT:            {calibrate: false, fixed_value: 1.0}
+  UO2_epsilonRelocation: {calibrate: false, fixed_value: 1.0}
+  UO2_epsilonSwelling:   {calibrate: false, fixed_value: 1.0}
+
+labels:                      # display names in the figures
+  UO2_rho: 'UO$_2$ $\rho$'
+  UO2_k: 'UO$_2$ $k$'
+  UO2_alphaT: 'UO$_2$ $\alpha_T$'
+  UO2_epsilonRelocation: 'UO$_2$ relocation'
+  UO2_epsilonSwelling: 'UO$_2$ swelling'
+  QoI: 'FCT at EOL [K]'           # quantity of interest (axis labels)
+
+measurement_noise:
+  relative: 0.01             # 1% of the measured value (likelihood and validation)
+
+surrogate:
+  file: results/common/surrogates/surrogates.pkl   # GPs trained once with config_surrogates.yaml
+
+likelihood:
+  include_gp_variance: true
+
+# ---- Standard calibration (emcee): criteria of calibration_validation_criteria.xlsx ----
+standard:
+  stretch_a: 10.0            # one parameter: acceptance 0.45 (a = 2 gave 0.82; 1D Gaussian test: a = 8, 10, 15 -> 0.49, 0.45, 0.38)
+  walker_multipliers: [4]    # 4 walkers (4 x 1 calibrated parameter)
+  nsteps_list: [10000, 30000, 50000]
+  stop_at_first_pass: true   # stop at the first length meeting the convergence criteria
+  burnin_fraction: 0.5
+
+# ---- Hierarchical calibration (MH-within-Gibbs) ----
+hierarchical:
+  n_chains: 4
+  parallel_chains: true
+  nsteps_list: [10000, 30000, 50000]
+  burnin_fraction: 0.5
+  dispersed_init: true
+  adaptation:                # Haario et al. (2001) on every block
+    mu: covariance
+    sigma: covariance
+    X: covariance
+    start: 200               # covariance accumulated from iteration 200
+    proposal_update_start: 400
+    stop_before_burnin_end: 200   # proposal fixed from (burn-in - 200)
+    s_d: {mu: 4.0, sigma: 1.5, X: 5.66}  # 1 parameter (5.66 = 2.38^2, Haario et al. 2001); test 16 rods, 6000 steps: acceptance mu 0.43, sigma 0.48, X 0.40-0.45 ({0.25, 0.5, 0.5} gave 0.80, 0.64, 0.77)
+  joint_shift_move: {enabled: true}
+  joint_scale_move: {enabled: true}   # sigma and X - mu scaled together: mixing of sigma near 0 (funnel)
+  store_logpost: true
+
+diagnostics:
+  rhat_max: 1.01
+  ess_per_chain: 100         # ESS >= 400 (4 chains / 4 walkers)
+  check_tail_ess: true       # hierarchical: tail-ESS >= 400 too
+  tau_factor: 50             # N >= 50 tau
+  standard_rhat: false       # emcee: walkers are not independent chains
+  standard_ess: autocorr     # emcee: ESS = N * n_walkers / tau
+  hierarchical_convergence_blocks: [mu, sigma]   # X[rod]: reported only
+  acceptance_range_standard: [0.2, 0.5]
+  acceptance_range_1d: [0.31, 0.57]              # mu_d, sigma_d (90% of the maximum efficiency)
+  acceptance_range_X: [0.31, 0.57]               # X[rod] with 1 parameter
+
+postprocessing:
+  mode: both
+  n_posterior_samples: 4000
+  case_plots: false          # 124 rods: per-rod plots disabled
+  show_reference_population: false
+
+validation:
+  run: true
+  source: surrogate          # chi2_E, chi2_tot, coverage through the GPs of the 6 validation rods
+  n_draws: 4000
+  interval_level: 0.95

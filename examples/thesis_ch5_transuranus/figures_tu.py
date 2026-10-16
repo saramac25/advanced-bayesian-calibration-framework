@@ -27,8 +27,9 @@ Outputs in <results>/figures_tu/ (PDF, plus PNG for a quick look):
 
 Predictions (one band = 95% central interval of the predictive distribution):
   * standard calibration: theta from the posterior, for every case;
-  * hierarchical, calibration case e: theta from the case-level posterior X[e];
-  * hierarchical, validation case: theta_new = mu + sigma z (population predictive, new case).
+  * hierarchical: theta_new = mu + sigma z (population predictive), for every case (band drawn);
+  * hierarchical, calibration case e, metrics only (HC_case): theta from the case-level
+    posterior X[e], i.e. the fit of the case's own history.
 Each theta is propagated through the GP of the case (mean + GP variance) and the PCA. The
 measurement uncertainty (1%) is NOT in the bands; it is drawn as error bars / grey band
 (C/E = 1 +- 1.96 x 1%). The coverage and chi2 of the captions follow step 08 (predictive
@@ -347,10 +348,13 @@ def case_predictions(cid, is_val, sc, hc, pr, cfg, data, seed):
     lv = [100 * (1 - LEVEL) / 2, 100 * (1 + LEVEL) / 2]
     res["prior"] = {"band": np.percentile(d0, lv, axis=0), "ce_band": np.percentile(d0 / y, lv, axis=0),
                     "coverage": case_metrics(d0, y, r, LEVEL, seed)["coverage"]}
-    for m, post in (("SC", sc), ("HC", hc)):
+    # SC: posterior theta; HC: population theta_new = mu + sigma z (the band drawn, every case);
+    # HC_case (calibration cases only, metrics only): case-level posterior X[e]
+    methods = [("SC", sc), ("HC", hc)] + ([] if is_val else [("HC_case", hc)])
+    for m, post in methods:
         if m == "SC":
             theta, theta_map = post.draws(N_DRAWS, seed), post.map_point()
-        elif is_val:
+        elif m == "HC":
             theta, theta_map = post.population(N_DRAWS, seed), post.map_point()
         else:
             e = post.case_ids.index(cid)
@@ -366,9 +370,8 @@ def case_predictions(cid, is_val, sc, hc, pr, cfg, data, seed):
         sig_post = pr.mean(theta, cid).std(axis=0, ddof=1)
         t = chi2_terms(y, p_fit, sig_post, sig_gp, r * np.abs(y))
         cm = case_metrics(d, y, r, LEVEL, seed)
-        q = np.percentile(d, [100 * (1 - LEVEL) / 2, 100 * (1 + LEVEL) / 2], axis=0)
-        qce = np.percentile(d / y, [100 * (1 - LEVEL) / 2, 100 * (1 + LEVEL) / 2], axis=0)
-        res[m] = {"band": q, "ce_band": qce, "coverage": cm["coverage"],
+        res[m] = {"band": np.percentile(d, lv, axis=0), "ce_band": np.percentile(d / y, lv, axis=0),
+                  "coverage": cm["coverage"],
                   "chi2_E": float(t["chi2_E_term"].mean()), "chi2_tot": float(t["chi2_tot_term"].mean())}
     return res
 
@@ -412,7 +415,9 @@ def metrics_text(res, pct="\\%"):
             f"standard {100 * res['SC']['coverage']:.0f}{pct}, "
             f"$\\chi^2_{{tot}}$ = {res['SC']['chi2_tot']:.3g}; "
             f"hierarchical {100 * res['HC']['coverage']:.0f}{pct}, "
-            f"$\\chi^2_{{tot}}$ = {res['HC']['chi2_tot']:.3g}")
+            f"$\\chi^2_{{tot}}$ = {res['HC']['chi2_tot']:.3g}"
+            + (f" (case-level posterior $X_e$: {100 * res['HC_case']['coverage']:.0f}{pct}, "
+               f"$\\chi^2_{{tot}}$ = {res['HC_case']['chi2_tot']:.3g})" if "HC_case" in res else ""))
 
 
 # --------------------------------------------------------------------------- #
@@ -474,7 +479,7 @@ def main():
     for cid in order:
         res = case_predictions(cid, cid in val, sc, hc, pr, cfg, data, seed)
         allres[cid] = res
-        for m in ("SC", "HC"):
+        for m in [k for k in ("SC", "HC", "HC_case") if k in res]:
             rows.append({"case": cid, "set": "validation" if cid in val else "calibration", "method": m,
                          "n_points": data.cases[cid].n_t, "coverage": res[m]["coverage"],
                          "chi2_E": res[m]["chi2_E"], "chi2_tot": res[m]["chi2_tot"]})
@@ -492,13 +497,13 @@ def main():
         a1.set_title(case_title(cid), fontsize=12)
         fig.tight_layout()
         save(fig, out / "appendix_B" / f"tu_pred_{cid}")
-        setname = "validation case, hierarchical band from the population predictive" if cid in val \
-            else "calibration case, hierarchical band from the case-level posterior $X_e$"
+        setname = "validation case" if cid in val else "calibration case"
         lines += [r"\begin{figure}[!htbp]", r"    \centering",
                   rf"    \includegraphics[width=0.9\textwidth]{{images/appendix_tu/appendix_B/tu_pred_{cid}.pdf}}",
                   rf"    \caption{{{tex(case_title(cid))} ({setname}): fuel centreline temperature (top) and "
                   rf"C/E ratio (bottom); 95\% predictive bands of the prior (dotted), of the standard "
-                  rf"and of the hierarchical calibration, nominal prediction and measurements. "
+                  rf"and of the hierarchical calibration (population predictive), nominal prediction and "
+                  rf"measurements. "
                   rf"{metrics_text(allres[cid])}.}}",
                   rf"    \label{{fig:app_tu_B_{i + 1}}}", r"\end{figure}"]
         lines += [r"\clearpage", ""] if i % 2 == 1 else [""]

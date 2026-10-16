@@ -32,6 +32,7 @@ python run_thesis_tu.py correlation kernels gp           # common part
 #      and the parameters block of config_tu.yaml
 python run_thesis_tu.py calibration                      # steps 04-08 (lengths 10k -> 100k, continued)
 python run_thesis_tu.py calibration --hc-steps 150000 --continue-hc   # longer, without restarting
+python figures_tu.py --time-label "Time [d]"             # thesis figures, tables, appendix LaTeX
 ```
 
 | Stage | Output |
@@ -41,5 +42,6 @@ python run_thesis_tu.py calibration --hc-steps 150000 --continue-hc   # longer, 
 | kernels, gp | `results/common/surrogates/` (kernel comparison, GPs, test metrics) |
 | sobol | `results/common/sobol/` (S1, ST per case and principal component, variance-weighted indices of the whole history, summary, figure) |
 | calibration | `results/tu/` (calibration, diagnostics, postprocessing, validation, 93 posterior samples per method) |
+| figures_tu.py | `results/figures_tu/` (Spearman summary, GP parity, population, case-level parameters, prediction + C/E examples; appendix A (PCA, Spearman) and B (prediction + C/E) of every case with their LaTeX; `tu_cases.csv`, `tu_case_metrics.csv`, `tu_case_modes.csv`) |
 
 Source layout of `results.h5` and the filtering: see the docstring of `prepare_data.py`.

@@ -65,7 +65,7 @@ hierarchical:
     start: 200
     proposal_update_start: 400
     stop_before_burnin_end: 200
-    s_d: {mu: 0.5, sigma: 1.0, X: 0.7}   # as the OFFBEAT cases with rod-to-rod variability; CHECK step 06
+    s_d: {mu: 1.5, sigma: 2.0, X: 0.9}   # retuned on step 06 (0.5/1.0/0.7: mu, sigma acceptance 0.7-0.8)
   joint_shift_move: {enabled: true}
   joint_scale_move: {enabled: true}
   store_logpost: true

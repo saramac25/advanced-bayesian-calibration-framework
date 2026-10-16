@@ -62,7 +62,10 @@ def coverage(res: Path, out: Path, true_k: float):
         ax.set_title(title)
         ax.set_xlabel("Repetition")
         ax.set_xlim(-2, len(d) + 1)
-        ax.legend(loc="upper left", frameon=False)
+        ax.legend(loc="upper left", frameon=True, framealpha=0.95, edgecolor="none")
+    lo = min(ax.get_ylim()[0] for ax in axes)
+    hi = max(ax.get_ylim()[1] for ax in axes)
+    axes[0].set_ylim(lo, hi + 0.35 * (hi - lo))           # room for the legends above the intervals
     axes[0].set_ylabel("$k$ multiplier, 95% interval")
     fig.tight_layout()
     for ext in ("pdf", "png"):
@@ -90,7 +93,7 @@ def rodlevel(res: Path, out: Path, true_k: float):
         r = np.corrcoef(x.P, x["mean"])[0, 1]
         pp = np.linspace(x.P.min() - 0.2, x.P.max() + 0.2, 10)
         ax.plot(pp, np.polyval(b, pp), "--", color="0.35", lw=1.2,
-                label=f"linear trend: {b[0]:+.3f} per kW/m ($r$ = {r:.2f})")
+                label=f"linear trend: {b[0]:+.4f} per kW/m ($r$ = {r:.2f})")
         ax.axhline(true_k, color=C_TRUE, lw=2, label="True value")
         ax.set_title(title)
         ax.set_xlabel("Time-averaged linear heat rate [kW/m]")

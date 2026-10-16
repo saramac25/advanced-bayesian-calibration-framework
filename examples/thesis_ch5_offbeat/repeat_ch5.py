@@ -2,7 +2,7 @@
 independent synthetic data sets (frequentist check of the 95% intervals).
 
 Every repetition r = 0 ... N-1 uses the same calibration rods and model (configuration of
-the case, e.g. config_modelbias_strong.yaml) and a NEW realisation of the 1% measurement
+the case, e.g. config_modelbias_uniform_k.yaml) and a NEW realisation of the 1% measurement
 noise of the synthetic experiments:
 
     y_i^(r) = FCT_i^model(true vector A) x (1 + 0.01 eps_i^(r)),   eps ~ N(0, 1), seed seed0 + r
@@ -19,11 +19,11 @@ again in the repetitions. For each repetition and calibrated parameter the scrip
 
 and at the end the coverage over the repetitions (results/repeat_<case>/coverage.csv).
 
-    # case 1: uniform strong bias (lengths of the reference run given explicitly)
-    python repeat_ch5.py modelbias_strong --n-cal 16 --reps 100 --jobs 15 \
-        --hc-steps 50000 --sc-steps 10000 --sc-walkers 4
-    # case 2: structural bias, lengths read from its reference run (run_thesis_ch5.py first)
-    python repeat_ch5.py modelbias_struct --n-cal 16 --reps 100 --jobs 15
+    # reference run of each case (convergence length), then the repetitions at that length
+    python run_thesis_ch5.py modelbias_uniform_k modelbias_struct_k --n-cal 16 --hc-steps 10000 30000 50000
+    python repeat_ch5.py modelbias_uniform_k --n-cal 16 --reps 100 --jobs 14
+    python repeat_ch5.py modelbias_struct_k --n-cal 16 --reps 100 --jobs 14
+    python figures_bias_ch5.py           # coverage and rod-level figures of the two cases
 
 Each repetition runs its 4 hierarchical chains in parallel (4 cores): --jobs 15 uses 60 cores.
 The repetitions already done are skipped, so an interrupted run is resumed by launching the
@@ -167,7 +167,7 @@ def coverage(out: Path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("case", help="case name, e.g. modelbias_strong or modelbias_struct")
+    ap.add_argument("case", help="case name, e.g. modelbias_uniform_k or modelbias_struct_k")
     ap.add_argument("--n-cal", type=int, default=16, help="calibration rods (as the reference run)")
     ap.add_argument("--reps", type=int, default=100)
     ap.add_argument("--jobs", type=int, default=15, help="repetitions in parallel (4 cores each)")

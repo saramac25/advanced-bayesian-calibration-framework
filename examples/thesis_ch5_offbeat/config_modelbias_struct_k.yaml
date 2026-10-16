@@ -1,12 +1,14 @@
 # =============================================================================
-#  Chapter 5 - case 3e: STRUCTURAL MODEL BIAS, ONLY k CALIBRATED (dataset A)
-#  As modelbias_struct, but alphaT is NOT calibrated (fixed at the OFFBEAT default 1.0,
-#  reality 0.922) and the power slope of relocation and swelling is 0.2 per kW/m:
+#  Chapter 5 - MODEL BIAS DEPENDENT ON THE ROD POWER, only k calibrated (dataset A)
+#  The non-calibrated multipliers used in the GPs depend linearly on the time-averaged
+#  LHGR P of each rod (make_modelbias_struct.py, inputs/fixed_values_modelbias_struct_k.csv):
 #    relocation = swelling = 1 + 0.2 (P - 16.5 kW/m),  rho = 1 + 0.005 (P - 16.5 kW/m)
-#  (inputs/fixed_values_modelbias_struct_k.csv; calibration rods: 0.63-1.24).
-#  In modelbias_struct the power-dependent part of the bias is absorbed by alphaT (pushed to
-#  its upper bound), so neither formulation recovers k; with k alone, the rod-to-rod
-#  part of the bias can only be represented by the population spread sigma_k.
+#  (calibration rods: relocation and swelling 0.63-1.24); alphaT at the OFFBEAT default 1.0.
+#  Reality: the constant true vector A. The model error has a part common to all rods and a
+#  part growing with the power: a condition-dependent discrepancy delta(x), x = LHGR
+#  (Kennedy and O'Hagan 2001). Same as modelbias_uniform_k except for the power slope.
+#  Only k is calibrated: alphaT is not identifiable from the FCT at EOL (Sobol' index in
+#  kelvin ~5 K against a measurement uncertainty of ~10.5 K; epistemic case: posterior = prior).
 # =============================================================================
 project:
   name: ch5_modelbias_struct_k

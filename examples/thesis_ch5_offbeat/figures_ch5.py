@@ -39,14 +39,10 @@ from abcf.postprocessing.posterior import Posterior  # noqa: E402
 from abcf.workflow import calibration_cases, latest_result, load_all  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-CASES = ["epistemic", "aleatoric", "modelbias", "modelbias_strong", "modelbias_rod", "modelbias_struct", "modelbias_struct_k", "modelbias_uniform_k", "epistemic_prior"]
+CASES = ["epistemic", "aleatoric", "modelbias_uniform_k", "modelbias_struct_k", "epistemic_prior"]
 CASE_TITLE = {"epistemic": "Epistemic uncertainty", "aleatoric": "Aleatoric uncertainty",
-              "modelbias": "Model bias",
-              "modelbias_strong": "Model bias, relocation 1.3",
-              "modelbias_rod": "Model bias varying between rods",
-              "modelbias_struct": "Model bias dependent on rod power",
-              "modelbias_struct_k": "Model bias dependent on rod power, k only",
-              "modelbias_uniform_k": "Uniform model bias, k only",
+              "modelbias_uniform_k": "Model bias common to all rods",
+              "modelbias_struct_k": "Model bias dependent on the rod power",
               "epistemic_prior": "Epistemic uncertainty, literature priors"}
 RUG_H, RUG_LW = 0.25, 1.5     # true-value rug lines: height (fraction of the y axis) and width, all cases
 ORDER = ["UO2_k", "UO2_alphaT"]                   # k left, alphaT right
@@ -117,9 +113,11 @@ def samples_of(c: dict, method: str, n: int = 20000) -> np.ndarray:
 def fig_parameters(c: dict, name: str, out: Path) -> list:
     post_sc = c["post"]["SC"]
     names = post_sc.names
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
+    order = [q for q in ORDER if q in names]          # model-bias cases: k only
+    fig, axes = plt.subplots(1, len(order), figsize=(6.5 * len(order), 4.8), squeeze=False)
+    axes = axes[0]
     rows = []
-    for ax, param in zip(axes, ORDER):
+    for ax, param in zip(axes, order):
         j = names.index(param)
         lo, hi = post_sc.lower_phys[j], post_sc.upper_phys[j]
         pr = (c["cfg"]["parameters"][param].get("prior") or {})
@@ -178,7 +176,7 @@ def fig_parameters(c: dict, name: str, out: Path) -> list:
     handles = [Line2D([0], [0], color=C_PRIOR, lw=2, ls="--"),
                (Patch(color=C_SC, alpha=0.3), Line2D([0], [0], color=C_SC, lw=2.2)),
                (Patch(color=C_HC, alpha=0.3), Line2D([0], [0], color=C_HC, lw=2.2))]
-    normal_pr = any((c["cfg"]["parameters"][q].get("prior") or {}).get("type") == "normal" for q in ORDER)
+    normal_pr = any((c["cfg"]["parameters"][q].get("prior") or {}).get("type") == "normal" for q in order)
     labels = ["prior (normal, truncated to the GP range)" if normal_pr else "uniform prior (GP training range)",
               "standard calibration: posterior",
               "hierarchical calibration: population (new rod)"]
@@ -190,7 +188,8 @@ def fig_parameters(c: dict, name: str, out: Path) -> list:
     else:
         handles.append(Line2D([0], [0], marker="|", ms=14, mew=RUG_LW, lw=0, color=C_TRUE))
         labels.append("true value (same for all rods)")
-    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.02), ncol=2, frameon=False)
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.02), ncol=1 if len(order) == 1 else 2,
+               frameon=False)
     fig.suptitle(CASE_TITLE[name])
     fig.tight_layout()
     _save(fig, out / f"parameters_{name}")
@@ -205,8 +204,9 @@ def fig_traces(c: dict, name: str, out: Path):
     names = list(sc["metadata"]["param_names"])
     idx = np.asarray(sc["metadata"]["calibrated_idx"], dtype=int)
     scal = sc["scaler"]
-    fig, axes = plt.subplots(2, 3, figsize=(16, 6.5), sharex="col")
-    for r, param in enumerate(ORDER):
+    order = [q for q in ORDER if q in names]
+    fig, axes = plt.subplots(len(order), 3, figsize=(16, 3.25 * len(order)), sharex="col", squeeze=False)
+    for r, param in enumerate(order):
         j = names.index(param)
         mean, std = scal["mean"][idx[j]], scal["std"][idx[j]]
         single, rods, pop = truths(c, name, param)

@@ -1,4 +1,4 @@
-"""Fixed values of the STRUCTURAL model-bias case (config_modelbias_struct.yaml).
+"""Fixed values of the STRUCTURAL model-bias case (config_modelbias_struct_k.yaml).
 
 The non-calibrated multipliers of the calibration model are a linear function of the
 time-averaged linear heat generation rate (LHGR) of each rod, P_i [kW/m]:
@@ -7,8 +7,9 @@ time-averaged linear heat generation rate (LHGR) of each rod, P_i [kW/m]:
     swelling_i   = 1 + b_swell (P_i - P_ref)
     rho_i        = 1 + b_rho   (P_i - P_ref)          (clipped to the GP domain [0.5, 1.5])
 
-with P_ref = 16.5 kW/m (median power of the calibration rods), b_rel = b_swell = 0.15 and
-b_rho = 0.005 per kW/m. Reality (synthetic experiments, dataset A) has constant multipliers
+with P_ref = 16.5 kW/m (median power of the calibration rods), b_rel = b_swell = 0.2 and
+b_rho = 0.005 per kW/m; alphaT is fixed at the OFFBEAT default 1.0 in the configuration.
+Reality (synthetic experiments, dataset A) has constant multipliers
 (true vector A, inputs/metadata.json), so the model error of rod i,
 delta_i = FCT(model multipliers of rod i) - FCT(true multipliers), has a part common to all
 rods (multipliers 1.0 at P_ref instead of the true values) and a part that grows with the
@@ -18,12 +19,11 @@ O'Hagan (2001), introduced through the sub-models whose physics depends on power
 
     python make_modelbias_struct.py --rod-dir <folder with ROD1 ... ROD130>/   (OFFBEAT cases)
 
-writes inputs/fixed_values_modelbias_struct.csv (multipliers only). The case with k only
-(config_modelbias_struct_k.yaml) uses b_rel = b_swell = 0.2:
-
-    python make_modelbias_struct.py --rod-dir <...> --slope 0.2 --out fixed_values_modelbias_struct_k.csv
- The power of every rod
-(rod_power.csv) is written next to this script only with --save-power, and is not committed.
+writes inputs/fixed_values_modelbias_struct_k.csv (multipliers only). With zero slopes the
+multipliers are 1.0 for every rod: the bias common to all rods of config_modelbias_uniform_k.yaml.
+The power of every rod (rod_power.csv) is written next to this script only with --save-power,
+and is not committed; it can be recovered from the density column of the output file,
+P_i = P_ref + (rho_i - 1) / b_rho (never clipped), as done by figures_bias_ch5.py.
 """
 
 import argparse
@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 
 HERE = Path(__file__).resolve().parent
-P_REF, B_REL, B_SWELL, B_RHO = 16.5, 0.15, 0.15, 0.005
+P_REF, B_REL, B_SWELL, B_RHO = 16.5, 0.2, 0.2, 0.005
 
 
 def mean_lhgr(case_dir: Path) -> float:
@@ -59,7 +59,7 @@ def main():
     ap.add_argument("--slope", type=float, default=B_REL,
                     help=f"b_rel = b_swell per kW/m (default {B_REL})")
     ap.add_argument("--rho-slope", type=float, default=B_RHO, help=f"b_rho per kW/m (default {B_RHO})")
-    ap.add_argument("--out", default="fixed_values_modelbias_struct.csv", help="file name in inputs/")
+    ap.add_argument("--out", default="fixed_values_modelbias_struct_k.csv", help="file name in inputs/")
     args = ap.parse_args()
     rods = sorted((d for d in Path(args.rod_dir).glob("ROD*") if (d / "constant" / "lhgr").exists()),
                   key=lambda d: int(d.name[3:]))

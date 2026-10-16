@@ -9,11 +9,8 @@ situations where the true parameters are known:
 |---|---|---|---|
 | epistemic | dataset A (one true vector for all rods) | true values (common) | N(y_i \| GP_i(k, alphaT, theta_true)) |
 | aleatoric | dataset B (one true vector per rod) | true values of rod *i* | N(y_i \| GP_i(k, alphaT, theta_true,i)) |
-| model bias | dataset A | OFFBEAT default values (1.0), same for all rods, while the reality is the true vector A | N(y_i \| GP_i(k, alphaT, theta_default)) |
-| modelbias_strong | dataset A | relocation 1.3, rho and swelling 1.0 (same for all rods) | N(y_i \| GP_i(k, alphaT, theta_strong)) |
-| modelbias_rod | dataset A | relocation random per rod, N(1, 0.3^2) | N(y_i \| GP_i(k, alphaT, theta_rod,i)) |
-| modelbias_struct | dataset A | rho, relocation, swelling linear in the time-averaged LHGR of rod *i* (`make_modelbias_struct.py`): structural, power-dependent bias | N(y_i \| GP_i(k, alphaT, theta(P_i))) |
-| modelbias_struct_k | dataset A | as modelbias_struct (slope 0.2), alphaT fixed at 1.0: only k calibrated | N(y_i \| GP_i(k, alphaT = 1, theta(P_i))) |
+| modelbias_uniform_k | dataset A | alphaT, rho, relocation, swelling at the OFFBEAT default 1.0 for every rod (bias common to all rods); only k calibrated | N(y_i \| GP_i(k, 1, 1, 1, 1)) |
+| modelbias_struct_k | dataset A | alphaT at 1.0; rho, relocation, swelling linear in the time-averaged LHGR of rod *i* (`make_modelbias_struct.py`): bias dependent on the operating conditions; only k calibrated | N(y_i \| GP_i(k, 1, theta(P_i))) |
 
 The 130 rods share the Turkey Point 3 geometry and coolant temperature
 and use the power history (linear heat rate, axial profile, fast flux)
@@ -88,7 +85,7 @@ or stage by stage:
 
 ```bash
 python run_thesis_ch5.py prepare correlation morris kernels gp sobol   # common part (GPs ~1-2 h)
-python run_thesis_ch5.py epistemic                         # one case (also aleatoric, modelbias, epistemic_prior)
+python run_thesis_ch5.py epistemic                         # one case (also aleatoric, modelbias_uniform_k, modelbias_struct_k, epistemic_prior)
 python run_thesis_ch5.py figures                           # figures and tables
 ```
 
@@ -100,7 +97,7 @@ python run_thesis_ch5.py figures                           # figures and tables
 | kernels | 5 kernels (C x RBF, C x Matern 5/2, with and without white noise, C x (Matern 3/2 + RQ) + white noise), same 80/20 split: relative RMSE, Q2, standardised residuals, 95% coverage, NLPD | `results/common/surrogates/kernel_comparison_*` |
 | gp | one GP per rod on the 5 parameters, kernel of `config_surrogates.yaml` | `results/common/surrogates/` |
 | sobol | Sobol' indices S1, ST of the 5 GP parameters on the GP mean of every rod, with the prior uncertainty (literature widths, centred on the OFFBEAT default, truncated to [0.5, 1.5]); ST >= 0.01 -> worth calibrating, below -> can be fixed | `results/common/sobol/` |
-| epistemic, aleatoric, modelbias | steps 04-08 of the framework + 93 posterior samples (Wilks 95/95 two-sided; the first 59 are enough for one-sided) to re-run OFFBEAT | `results/<case>/` |
+| epistemic, aleatoric, modelbias_uniform_k, modelbias_struct_k | steps 04-08 of the framework + 93 posterior samples (Wilks 95/95 two-sided; the first 59 are enough for one-sided) to re-run OFFBEAT | `results/<case>/` |
 | epistemic_prior | the epistemic case again with literature normal priors on k and alphaT (N(1, 0.10^2), N(1, 0.075^2), Fiorina et al. 2022; standard: on theta, hierarchical: on mu), to show which results come from the data and which from the prior | `results/epistemic_prior/`, figure `prior_sensitivity_epistemic` |
 | figures | parameter comparison, traces, posterior predictive; summary tables | `results/figures/` |
 
@@ -116,23 +113,26 @@ version the HC files also store the chain checkpoints, so a converged-or-not run
 continued later:
 
 ```bash
-python run_thesis_ch5.py modelbias_struct --n-cal 16 --hc-steps 100000 --continue-hc
+python run_thesis_ch5.py modelbias_struct_k --n-cal 16 --hc-steps 100000 --continue-hc
 ```
 
 (`--continue-hc` keeps the SC result and continues the last HC file of the case; files written
 by older versions have no checkpoints and cannot be continued.)
 
-### Repetitions: coverage over 100 synthetic data sets (`repeat_ch5.py`)
+### Model bias: repetitions and figures (`repeat_ch5.py`, `figures_bias_ch5.py`)
 
-Same case, same rods, new 1% measurement noise in every repetition, fixed chain lengths
-(those of the converged reference run, not checked again); 95% intervals of SC, of the HC
-population mean and of the HC population predictive vs the true values ->
-`results/repeat_<case>/coverage.csv`, `repetitions.csv`. Each repetition uses 4 cores.
+The two model-bias cases calibrate k only (alphaT, not identifiable from the FCT at EOL, is
+fixed at the default) and differ only in the dependence of the bias on the rod power. Each is
+repeated on 100 synthetic data sets (same rods, new 1% measurement noise), at the chain
+lengths of its converged reference run (not checked again): coverage of the true k by the 95%
+intervals of SC, of the HC population mean and of the HC population predictive
+(`results/repeat_<case>/coverage.csv`, `repetitions.csv`). Each repetition uses 4 cores.
 
 ```bash
-python repeat_ch5.py modelbias_strong --n-cal 16 --reps 100 --jobs 15 --hc-steps 50000 --sc-steps 10000 --sc-walkers 4
-python run_thesis_ch5.py modelbias_struct --n-cal 16 --hc-steps 10000 30000 50000 100000   # reference run
-python repeat_ch5.py modelbias_struct --n-cal 16 --reps 100 --jobs 15                       # its lengths
+python run_thesis_ch5.py modelbias_uniform_k modelbias_struct_k --n-cal 16 --hc-steps 10000 30000 50000
+python repeat_ch5.py modelbias_uniform_k --n-cal 16 --reps 100 --jobs 14
+python repeat_ch5.py modelbias_struct_k --n-cal 16 --reps 100 --jobs 14
+python figures_bias_ch5.py       # results/figures/bias_coverage_ch5, bias_rodlevel_ch5
 ```
 
 Kernel of the GPs: if the stage `kernels` has been run, the stage `gp`

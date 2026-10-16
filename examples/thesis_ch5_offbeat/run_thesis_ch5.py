@@ -20,11 +20,11 @@ Stages
   gp           step 03: one GP per rod (kernel of config_surrogates.yaml)
   sobol        Sobol' indices S1, ST of the 5 GP parameters with the prior uncertainty
                (literature widths, centred on the OFFBEAT default): which to calibrate (sobol_ch5.py)
-  epistemic, aleatoric, modelbias, modelbias_strong (relocation fixed at 1.3),
-  modelbias_rod (relocation wrong and different for each rod),
-  modelbias_struct (rho, relocation, swelling linear in the rod power: structural bias),
-  modelbias_struct_k (the same with slope 0.2, alphaT fixed at 1.0, only k calibrated),
-  modelbias_uniform_k (as modelbias_struct_k with zero slope: all fixed parameters at 1.0),
+  epistemic, aleatoric (k and alphaT calibrated),
+  modelbias_uniform_k (k calibrated; alphaT, rho, relocation, swelling at the OFFBEAT default 1.0
+               for every rod: bias common to all rods),
+  modelbias_struct_k (k calibrated; alphaT at 1.0, rho, relocation, swelling linear in the rod
+               power, make_modelbias_struct.py: bias dependent on the operating conditions),
   epistemic_prior (epistemic with literature normal priors: prior sensitivity)
                steps 04 (standard), 05 (hierarchical), 06 (diagnostics),
                07 (post-processing), 08 (validation: chi2 on the 6 validation rods)
@@ -41,7 +41,7 @@ otherwise only the folders of the selected stages. --keep disables the deletion.
 --continue-hc continues the last hierarchical chains of the selected cases instead of
 restarting them (only for HC files written by this version, which store the chain
 checkpoints), e.g. after a run at 50000 steps that did not converge:
-    python run_thesis_ch5.py modelbias_rod --n-cal 16 --hc-steps 100000 --continue-hc
+    python run_thesis_ch5.py modelbias_struct_k --n-cal 16 --hc-steps 100000 --continue-hc
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 WF = HERE.parent.parent / "workflows"
-CASES = ["epistemic", "aleatoric", "modelbias", "modelbias_strong", "modelbias_rod", "modelbias_struct", "modelbias_struct_k", "modelbias_uniform_k", "epistemic_prior"]
+CASES = ["epistemic", "aleatoric", "modelbias_uniform_k", "modelbias_struct_k", "epistemic_prior"]
 STAGES = ["prepare", "correlation", "morris", "kernels", "gp", "sobol"] + CASES + ["figures"]
 N_WILKS = 93
 QUICK_N_CAL = 10

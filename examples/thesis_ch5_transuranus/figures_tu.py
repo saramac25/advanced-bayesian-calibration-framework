@@ -376,37 +376,62 @@ def case_predictions(cid, is_val, sc, hc, pr, cfg, data, seed):
     return res
 
 
+C_MEAS = "#d7191c"     # measurements in red, distinct from the nominal prediction (black)
+
+
+def _break_gaps(t, *arrays, frac=0.01):
+    """Insert NaN where the time step exceeds `frac` of the time span (shutdowns between
+    cycles), so that lines and bands are not drawn across periods without data."""
+    t = np.asarray(t, float)
+    dt = np.diff(t)
+    pos = dt[dt > 0]
+    thr = max(frac * (t.max() - t.min()), 20 * (np.median(pos) if len(pos) else 0.0))
+    gap = np.where(dt > thr)[0] + 1
+    out = [np.insert(t, gap, np.nan)]
+    for a in arrays:
+        out.append(np.insert(np.asarray(a, float), gap, np.nan))
+    return out
+
+
 def plot_case(ax_t, ax_ce, cid, case, res, r, time_label, legend=True):
     t, y = case.tim, case.meas
-    o = np.argsort(t)
-    # prior predictive: edges only (dotted), below the posterior bands
+    o = np.argsort(t, kind="stable")
+    ts, ys = t[o], y[o]
+    # prior predictive: light grey filled band, below everything
     for ax, key in ((ax_t, "band"), (ax_ce, "ce_band")):
-        lo, hi = res["prior"][key][0][o], res["prior"][key][1][o]
-        ax.plot(t[o], lo, color=C_PRIOR, ls=":", lw=1.2, label="prior: 95% band" if key == "band" else None)
-        ax.plot(t[o], hi, color=C_PRIOR, ls=":", lw=1.2)
-    # hierarchical first (wider), standard on top with its edges drawn
-    for m, col, name, a in (("HC", C_HC, "hierarchical", 0.35), ("SC", C_SC, "standard", 0.55)):
+        tt, lo, hi = _break_gaps(ts, res["prior"][key][0][o], res["prior"][key][1][o])
+        ax.fill_between(tt, lo, hi, color="0.85", lw=0, zorder=1,
+                        label="prior: 95% band" if key == "band" else None)
+    # hierarchical (wider), then standard on top with its edges drawn
+    for m, col, name, a in (("HC", C_HC, "hierarchical", 0.45), ("SC", C_SC, "standard", 0.6)):
         for ax, key in ((ax_t, "band"), (ax_ce, "ce_band")):
-            lo, hi = res[m][key][0][o], res[m][key][1][o]
-            ax.fill_between(t[o], lo, hi, color=col, alpha=a, lw=0,
+            tt, lo, hi = _break_gaps(ts, res[m][key][0][o], res[m][key][1][o])
+            ax.fill_between(tt, lo, hi, color=col, alpha=a, lw=0, zorder=2,
                             label=f"{name}: 95% band" if key == "band" else None)
-            if m == "SC" and key == "band":
-                ax.plot(t[o], lo, color=col, lw=0.5)
-                ax.plot(t[o], hi, color=col, lw=0.5)
-    ax_t.plot(t[o], res["nominal"][o], color=C_NOM, lw=1, ls="--", label="nominal")
-    ax_t.errorbar(t[o], y[o], yerr=1.96 * r * np.abs(y[o]), fmt=".", ms=2, lw=0.3, color=C_EXP,
-                  alpha=0.6, label=r"measured $\pm 1.96\,\sigma_{\exp}$", zorder=0)
-    ax_ce.axhspan(1 - 1.96 * r, 1 + 1.96 * r, color="0.8", alpha=0.6, lw=0,
-                  label=r"$1 \pm 1.96\,\sigma_{\exp}$")
-    ax_ce.plot(t[o], res["nominal"][o] / y[o], ".", color=C_NOM, ms=1.5, label="nominal (C/E)")
-    ax_ce.axhline(1.0, color="k", lw=0.6)
+            if m == "SC":
+                ax.plot(tt, lo, color=col, lw=0.4, zorder=3)
+                ax.plot(tt, hi, color=col, lw=0.4, zorder=3)
+    tt, nom, ce_nom = _break_gaps(ts, res["nominal"][o], res["nominal"][o] / ys)
+    ax_t.plot(tt, nom, color="k", lw=0.7, zorder=4, label="nominal")
+    ax_ce.plot(tt, ce_nom, color="k", lw=0.5, zorder=4)
+    ax_t.errorbar(ts, ys, yerr=1.96 * r * np.abs(ys), fmt="o", ms=1.2, mew=0, elinewidth=0.25,
+                  color=C_MEAS, ecolor=C_MEAS, alpha=0.7, zorder=5,
+                  label=r"measured $\pm 1.96\,\sigma_{\exp}$")
+    for v in (1 - 1.96 * r, 1 + 1.96 * r):
+        ax_ce.axhline(v, color=C_MEAS, ls="--", lw=0.8, zorder=5)
+    ax_ce.plot([], [], color=C_MEAS, ls="--", lw=0.8, label=r"C/E $= 1 \pm 1.96\,\sigma_{\exp}$")
+    ax_ce.axhline(1.0, color=C_MEAS, lw=0.6, zorder=5)
     ax_t.set_ylabel("FCT [K]")
     ax_ce.set_ylabel("C/E")
     ax_ce.set_xlabel(time_label)
-    if legend:
-        h1, l1 = ax_t.get_legend_handles_labels()
-        h2, l2 = ax_ce.get_legend_handles_labels()
-        ax_t.legend(h1 + h2, l1 + l2, fontsize=8.5, ncol=2, frameon=False, loc="best")
+    h1, l1 = ax_t.get_legend_handles_labels()
+    h2, l2 = ax_ce.get_legend_handles_labels()
+    return h1 + h2, l1 + l2
+
+
+def legend_below(fig, handles, labels):
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=3,
+               frameon=False, fontsize=9, markerscale=4)
 
 
 def metrics_text(res, pct="\\%"):
@@ -493,17 +518,18 @@ def main():
     for i, cid in enumerate(order):
         case = data.cases[cid]
         fig, (a1, a2) = plt.subplots(2, 1, figsize=(9, 6.2), sharex=True, gridspec_kw={"height_ratios": [1.6, 1]})
-        plot_case(a1, a2, cid, case, allres[cid], case_noise(cfg, cid), args.time_label)
+        h, l_ = plot_case(a1, a2, cid, case, allres[cid], case_noise(cfg, cid), args.time_label)
         a1.set_title(case_title(cid), fontsize=12)
         fig.tight_layout()
+        legend_below(fig, h, l_)
         save(fig, out / "appendix_B" / f"tu_pred_{cid}")
         setname = "validation case" if cid in val else "calibration case"
         lines += [r"\begin{figure}[!htbp]", r"    \centering",
                   rf"    \includegraphics[width=0.9\textwidth]{{images/appendix_tu/appendix_B/tu_pred_{cid}.pdf}}",
                   rf"    \caption{{{tex(case_title(cid))} ({setname}): fuel centreline temperature (top) and "
-                  rf"C/E ratio (bottom); 95\% predictive bands of the prior (dotted), of the standard "
-                  rf"and of the hierarchical calibration (population predictive), nominal prediction and "
-                  rf"measurements. "
+                  rf"C/E ratio (bottom); 95\% predictive bands of the prior (grey), of the standard "
+                  rf"and of the hierarchical calibration (population predictive), nominal prediction (black) and "
+                  rf"measurements (red). "
                   rf"{metrics_text(allres[cid])}.}}",
                   rf"    \label{{fig:app_tu_B_{i + 1}}}", r"\end{figure}"]
         lines += [r"\clearpage", ""] if i % 2 == 1 else [""]
@@ -513,11 +539,12 @@ def main():
     fig, axes = plt.subplots(2, len(ex), figsize=(7.2 * len(ex), 6.4), sharex="col", squeeze=False,
                              gridspec_kw={"height_ratios": [1.6, 1]})
     for j, cid in enumerate(ex):
-        plot_case(axes[0, j], axes[1, j], cid, data.cases[cid], allres[cid], case_noise(cfg, cid),
-                  args.time_label, legend=(j == 0))
+        h, l_ = plot_case(axes[0, j], axes[1, j], cid, data.cases[cid], allres[cid], case_noise(cfg, cid),
+                          args.time_label)
         kind = "validation" if cid in val else "calibration"
         axes[0, j].set_title(f"({'abcd'[j]}) {case_title(cid)} ({kind})", fontsize=11)
     fig.tight_layout()
+    legend_below(fig, h, l_)
     save(fig, out / "tu_examples")
     print("Examples: " + "; ".join(f"{c}: {metrics_text(allres[c], '%')}" for c in ex))
     print(f"\nFigures and tables in {out}")

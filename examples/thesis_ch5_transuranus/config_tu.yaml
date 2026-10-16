@@ -54,6 +54,10 @@ hierarchical:
   nsteps_list: [10000, 30000, 50000, 100000]
   burnin_fraction: 0.5
   dispersed_init: true
+  init_X: case_mode          # X[rod] start at the likelihood maximum of the rod (+ jitter 0.05), mu and
+                             # sigma dispersed: with dispersed X, the case likelihoods (thousands of
+                             # points, very narrow peaks) were never reached by some chains
+                             # (R-hat ~1.9, logpost per chain -30e3 vs -1e5 ... -1.5e5)
   adaptation:                # Haario et al. (2001) on every block
     mu: covariance
     sigma: covariance

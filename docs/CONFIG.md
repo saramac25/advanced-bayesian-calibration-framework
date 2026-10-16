@@ -126,6 +126,12 @@ hierarchical calibration, so that the two methods stay comparable.
   units) for the `mu`, `sigma` and `X` blocks.
 * `dispersed_init`: chain 1 starts at the centre of the prior range,
   chains 2..N at random points.
+* `init_X` (`dispersed` | `case_mode`) and `init_X_jitter`: starting point of the case-level
+  parameters. `case_mode` starts X[e] at the maximum of the likelihood of case e (random starts
+  and Nelder-Mead, standardised units) plus a Gaussian jitter, while mu and sigma remain dispersed
+  between the chains. Useful when the likelihood of single cases is very narrow (long time
+  series): with dispersed starts, the random-walk proposals of some cases may never reach the
+  peak, and the chains stop in regions of very low posterior density.
 
 ### `fixed_proposal_cov`
 

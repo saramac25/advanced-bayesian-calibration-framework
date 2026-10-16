@@ -252,3 +252,16 @@ def test_emcee_continuation_matches_single_run():
     b = ContinuedEmcee(lp, np.full(2, -5.0), np.full(2, 5.0), 8, 2.0, 0.5, seed=11)
     # a chain continued 200 -> 500 is the same chain as one run at once to 500
     assert np.allclose(b.extend(500)["chains"], r2["chains"])
+
+
+def test_case_mode_initialisation():
+    from abcf.calibration.hierarchical.runner import case_modes, run_hierarchical
+    true = np.array([[0.4, -0.2], [-0.5, 0.6], [1.0, 0.1]])
+    liks = [_ToyLik(t, 0.01) for t in true]                  # very narrow case likelihoods
+    lo, hi = np.full(2, -3.0), np.full(2, 3.0)
+    modes, _ = case_modes(liks, lo, hi, seed=1)
+    assert np.allclose(modes, true, atol=1e-3)
+    cfg = _toy_hier_cfg()
+    cfg["hierarchical"]["init_X"] = "case_mode"
+    res = run_hierarchical(liks, ["a", "b", "c"], lo, hi, cfg, progress=False, nsteps=400)
+    assert np.allclose(res["X"][:, -1].mean(axis=0), true, atol=0.05)

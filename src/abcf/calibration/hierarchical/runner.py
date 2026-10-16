@@ -42,15 +42,54 @@ def _import_mhwg():
 
 
 def _initial_state(rng, chain: int, h: dict, lower, upper, n_cases: int):
+    """Starting point of a chain. Default: X[e] drawn around mu. With
+    ``init_X: case_mode`` the case-level parameters start at the maximum of the likelihood
+    of their own case (computed once in run_hierarchical) plus a small random jitter, while
+    mu and sigma are still dispersed between the chains: this avoids chains whose X[e]
+    never reach a very narrow likelihood peak, without tying the chains to one point."""
     p = len(lower)
+    modes = h.get("_case_modes")
     if chain == 0 or not h["dispersed_init"]:
-        mu = 0.5 * (lower + upper)
-        sig = np.full(p, float(h["initial_sigma"]))
+        if modes is not None:
+            m = np.asarray(modes, float)
+            mu, sig = m.mean(axis=0), np.maximum(m.std(axis=0), 0.05)
+        else:
+            mu = 0.5 * (lower + upper)
+            sig = np.full(p, float(h["initial_sigma"]))
     else:
         mu = rng.uniform(lower, upper)
         sig = rng.uniform(0.2, 1.0, size=p) * float(h["initial_sigma"]) * 2
-    X = np.clip(mu + sig * rng.standard_normal((n_cases, p)), lower, upper)
+    if modes is not None:
+        jit = float(h.get("init_X_jitter", 0.05))
+        X = np.clip(np.asarray(modes, float) + jit * rng.standard_normal((n_cases, p)), lower, upper)
+    else:
+        X = np.clip(mu + sig * rng.standard_normal((n_cases, p)), lower, upper)
     return mu, sig, X
+
+
+def case_modes(likelihoods: list, lower, upper, n_starts: int = 30, seed: int = 0):
+    """Maximum of the likelihood of every case over the prior box (standardised units):
+    best of n_starts random points refined with Nelder-Mead. Returns (modes (E, p), loglik (E,))."""
+    from scipy.optimize import minimize
+    rng = np.random.default_rng(seed)
+    lower, upper = np.asarray(lower, float), np.asarray(upper, float)
+    modes, vals = [], []
+    for lik in likelihoods:
+        def f(x):
+            if np.any(x < lower) or np.any(x > upper):
+                return np.inf
+            v = lik(x)
+            return -v if np.isfinite(v) else np.inf
+        starts = np.vstack([0.5 * (lower + upper), rng.uniform(lower, upper, size=(n_starts, len(lower)))])
+        fs = np.array([f(x) for x in starts])
+        best = None
+        for x0 in starts[np.argsort(fs)[:3]]:
+            r = minimize(f, x0, method="Nelder-Mead", options={"xatol": 1e-4, "fatol": 1e-6, "maxiter": 2000})
+            if best is None or r.fun < best.fun:
+                best = r
+        modes.append(np.clip(best.x, lower, upper))
+        vals.append(-best.fun)
+    return np.array(modes), np.array(vals)
 
 
 def _build_samplers(mh, rng, h: dict, case_ids: list, likelihoods: list, lower, upper, nsteps,
@@ -291,6 +330,13 @@ def run_hierarchical(likelihoods: list, case_ids: list, lower, upper, cfg: dict,
     h = cfg["hierarchical"]
     n = int(h["n_chains"])
     total = int(nsteps or h["nsteps"])
+    if previous is None and h.get("init_X", "dispersed") == "case_mode" and h.get("_case_modes") is None:
+        modes, ll = case_modes(likelihoods, lower, upper, seed=int(cfg["project"]["seed"]))
+        h["_case_modes"] = modes.tolist()
+        at_bound = int(np.sum(np.any((modes <= lower + 1e-6) | (modes >= upper - 1e-6), axis=1)))
+        print(f"init_X = case_mode: likelihood maximum of each of the {len(modes)} cases found "
+              f"({at_bound} at a bound of the prior range); X starts there (jitter "
+              f"{float(h.get('init_X_jitter', 0.05))}), mu and sigma dispersed between the chains")
     if previous is not None:
         n_new = total - int(previous["nsteps"])
         if n_new <= 0:

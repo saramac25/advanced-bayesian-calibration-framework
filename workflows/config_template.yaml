@@ -131,6 +131,10 @@ hierarchical:
                                # until the convergence criteria are met (replaces nsteps)
   burnin_fraction: 0.5         # the proposal adaptation stops at the end of the burn-in
   dispersed_init: true         # chains 2..N start from random points in the prior
+  init_X: dispersed            # dispersed: X[e] around mu | case_mode: X[e] at the likelihood maximum of
+                               # its case (+ init_X_jitter), for very narrow case likelihoods (many
+                               # time points); mu and sigma stay dispersed between the chains
+  init_X_jitter: 0.05          # standardised units
   initial_sigma: 0.5           # starting population std (standardised units)
   sigma_upper_bound: 10.0      # uniform prior on sigma: (0, sigma_upper_bound]
   adaptation:

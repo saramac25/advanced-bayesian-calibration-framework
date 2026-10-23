@@ -112,7 +112,7 @@ and draws the figures; see its README.
 ## Citing
 
 If you use this framework, please cite the PhD thesis and Robertson et
-al. (2025); see [`CITATION.cff`](CITATION.cff).
+al. (2026); see [`CITATION.cff`](CITATION.cff).
 
 ## License
 

@@ -86,7 +86,7 @@ def tex(s: str) -> str:
 
 
 def case_title(cid: str) -> str:
-    """'676-1_2-rod-3-node-10' -> 'IFA-676-1_2 ROD3, node 10'."""
+    """'123-4_5-rod-3-node-10' -> 'IFA-123-4_5 ROD3, node 10'."""
     try:
         exp, rest = cid.split("-rod-")
         rod, node = rest.split("-node-")

@@ -39,3 +39,9 @@ results_facsimile/
 examples/thesis_ch5_offbeat/*.zip
 examples/thesis_ch5_offbeat/log_*.txt
 examples/thesis_ch5_offbeat/run_full_log.txt
+
+# Local run logs, archives and figures of the thesis examples (may contain non-public data)
+examples/**/*.log
+examples/**/*.tgz
+examples/**/*.png
+examples/**/*.pdf

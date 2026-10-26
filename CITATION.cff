@@ -1,15 +1,17 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below, together with the references listed."
 title: "Advanced Bayesian Calibration Framework"
-version: 0.1.0
+version: 1.0.0
+date-released: "2026-10-26"
+license: BSD-3-Clause
+repository-code: "https://github.com/saramac25/advanced-bayesian-calibration-framework"
 authors:
   - family-names: Maccario
     given-names: Sara
-    affiliation: "Paul Scherrer Institut (PSI); Swiss Federal Technology Institute of Lausanne (EPFL)"
+    affiliation: "Paul Scherrer Institut (PSI); École Polytechnique Fédérale de Lausanne (EPFL)"
   - family-names: Robertson
     given-names: Gustav
-    # Author of the hierarchical MH-within-Gibbs sampler (src/abcf/calibration/hierarchical/mhwg)
-repository-code: "https://github.com/saramac25/advanced-bayesian-calibration-framework"
+    affiliation: "Uppsala University"
 keywords:
   - Bayesian calibration
   - hierarchical model
@@ -18,4 +20,35 @@ keywords:
   - principal component analysis
   - sensitivity analysis
   - uncertainty quantification
-# references: to be completed with the PhD thesis (EPFL) and Robertson et al. (2025)
+references:
+  - type: thesis
+    title: "Development and demonstration of a Bayesian calibration methodology applicable to complex models: fuel performance calculations"
+    authors:
+      - family-names: Maccario
+        given-names: Sara
+    institution:
+      name: "École Polytechnique Fédérale de Lausanne (EPFL)"
+    year: 2026
+    thesis-type: "PhD thesis"
+  - type: article
+    title: "Credible fission gas release calibration: A hierarchical Metropolis-Hastings-within-Gibbs approach to address model inadequacy"
+    authors:
+      - family-names: Robertson
+        given-names: Gustav
+      - family-names: Sjöstrand
+        given-names: Henrik
+      - family-names: Blair
+        given-names: Paul
+      - family-names: Andersson
+        given-names: Peter
+      - family-names: Toptan
+        given-names: Aysenur
+      - family-names: Maccario
+        given-names: Sara
+      - family-names: Hursin
+        given-names: Mathieu
+    journal: "Nuclear Engineering and Design"
+    volume: 457
+    start: 115030
+    year: 2026
+    doi: "10.1016/j.nucengdes.2026.115030"

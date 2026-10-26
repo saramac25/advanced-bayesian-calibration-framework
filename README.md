@@ -26,8 +26,6 @@ a documented format and needs no assumption on the physics of the model.
 It was developed and demonstrated in the PhD thesis of Sara Maccario
 (EPFL) on nuclear fuel performance models.
 
-> **Status:** private repository, under review before public release.
-
 ## Credits
 
 **Hierarchical sampler.** The MH-within-Gibbs building blocks in
@@ -142,4 +140,4 @@ al. (2026); see [`CITATION.cff`](CITATION.cff).
 
 ## License
 
-To be defined before the public release.
+BSD 3-Clause License, see [`LICENSE`](LICENSE). The files in `src/abcf/calibration/hierarchical/mhwg/` are by Gustav Robertson and are published here as agreed with him during his PhD.

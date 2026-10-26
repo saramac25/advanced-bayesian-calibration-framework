@@ -1,6 +1,6 @@
 """Log-densities of the blocks of the hierarchical sampler.
 
-Original author: Gustav Robertson (created 27 Aug 2024), version used for
+Original author: Gustav Robertson (Uppsala University) (created 27 Aug 2024), version used for
 the time-dependent QoI.
 Changes for abcf: demo block under __main__ removed (it used an older
 signature of ``logp_X``); unused imports removed.

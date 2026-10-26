@@ -1,6 +1,6 @@
 """Metropolis-Hastings block sampler.
 
-Original author: Gustav Robertson (created 26 Aug 2024).
+Original author: Gustav Robertson (Uppsala University) (created 26 Aug 2024).
 Changes for abcf: the demo code that followed the class (executed at
 import time and requiring corner, arviz and matplotlib) was removed.
 

@@ -1,6 +1,6 @@
 """Adaptation of the proposal distributions during the burn-in.
 
-Original author: Gustav Robertson (created 8 Oct 2024).
+Original author: Gustav Robertson (Uppsala University) (created 8 Oct 2024).
 Changes for abcf:
   * class ``adapt_covariance_matrix_old`` (superseded) removed;
   * ``adapt_acceptance_rate``: new optional keywords ``adapt_start``,

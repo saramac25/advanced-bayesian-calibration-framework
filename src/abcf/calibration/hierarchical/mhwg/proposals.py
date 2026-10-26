@@ -1,6 +1,6 @@
 """Gaussian random-walk proposals for the blocks of the hierarchical sampler.
 
-Original author: Gustav Robertson (created 20 Sep 2024), version used for
+Original author: Gustav Robertson (Uppsala University) (created 20 Sep 2024), version used for
 the time-dependent QoI.
 Changes for abcf:
   * ``propose_mu_d`` / ``propose_sig_d``: the 1-element proposal is

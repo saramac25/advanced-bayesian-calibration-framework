@@ -30,12 +30,38 @@ It was developed and demonstrated in the PhD thesis of Sara Maccario
 
 ## Credits
 
-The hierarchical MH-within-Gibbs sampler (`src/abcf/calibration/hierarchical/mhwg/`)
-was written by **Gustav Robertson**; see Robertson et al. (2026) [DOI:10.1016/j.nucengdes.2026.115030]. The changes made for this framework are
-listed in the header of each file and do not alter the algorithm.
+**Hierarchical sampler.** The MH-within-Gibbs building blocks in
+`src/abcf/calibration/hierarchical/mhwg/` were written by **Gustav Robertson**
+(Uppsala University) during his PhD and shared with Sara Maccario for her doctoral
+work. The algorithm is described in:
 
-The integration into a complete framework (sensitivity screening, GP and
-PCA surrogates, standard calibration, driver of the hierarchical sampler, diagnostics, validation) is the work of **Sara Maccario**.
+> G. Robertson, H. Sjöstrand, P. Blair, P. Andersson, A. Toptan, S. Maccario,
+> M. Hursin (2026). Credible fission gas release calibration: A hierarchical
+> Metropolis–Hastings-within-Gibbs approach to address model inadequacy.
+> *Nuclear Engineering and Design* 457, 115030.
+> [doi:10.1016/j.nucengdes.2026.115030](https://doi.org/10.1016/j.nucengdes.2026.115030)
+
+The changes made for this framework are listed in the header of each file and do
+not alter the algorithm. The structure of the GP ensemble in
+`src/abcf/surrogate/gp.py` is also derived from his code.
+
+**Framework.** The integration into a complete, solver-agnostic framework
+(sensitivity screening, GP and PCA surrogates, standard calibration, driver of the
+hierarchical sampler and joint shift move, diagnostics, validation, examples) is the
+work of **Sara Maccario** (PSI / EPFL), under the supervision of Mathieu Hursin.
+
+## Acknowledgements
+
+* The TRANSURANUS calculations, their post-processed results and the set-up of the
+  time-dependent IFPE/Halden case (`examples/thesis_ch5_transuranus/`) were provided
+  by Gustav Robertson. Neither the IFPE measurements (OECD/NEA) nor the TRANSURANUS
+  results are included in this repository: the example runs on dummy data generated
+  by `make_facsimile.py`.
+* The rod power histories used to generate the synthetic OFFBEAT experiments
+  (`examples/thesis_ch5_offbeat/`) were provided by Daniele Timpano; they are not
+  included in this repository.
+* Parts of the code were restructured with the help of an AI assistant (Claude,
+  Anthropic). All changes were reviewed and tested by the author.
 
 ## Installation
 

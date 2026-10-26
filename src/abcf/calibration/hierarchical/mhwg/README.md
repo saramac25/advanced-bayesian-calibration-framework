@@ -1,8 +1,11 @@
 # MH-within-Gibbs building blocks (Gustav Robertson)
 
 This sub-package contains the sampler building blocks written by Gustav
-Robertson (hierarchical MH-within-Gibbs algorithm, Robertson et al.,
-2025). They are used by `../runner.py`.
+Robertson (Uppsala University) during his PhD, for the hierarchical
+MH-within-Gibbs algorithm described in Robertson et al. (2026), Credible
+fission gas release calibration: A hierarchical Metropolis-Hastings-within-Gibbs
+approach to address model inadequacy, Nuclear Engineering and Design 457,
+115030, doi:10.1016/j.nucengdes.2026.115030. They are used by `../runner.py`.
 
 | File | Content |
 |---|---|

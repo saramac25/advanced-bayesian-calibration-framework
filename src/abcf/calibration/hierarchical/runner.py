@@ -10,7 +10,7 @@ Model (standardised calibrated parameters, d = 1..p, cases e = 1..E):
 Each Gibbs sweep updates mu_d and sigma_d (one block per parameter) and
 then X[e] (one block per case) with Metropolis-Hastings steps, using
 the sampler building blocks of Gustav Robertson (``mhwg`` sub-package;
-Robertson et al., 2025). Optional joint shift move (Sara Maccario): after
+Robertson et al., 2026). Optional joint shift move (Sara Maccario): after
 each sweep, mu_d and X[:, d] are shifted by the same amount, which
 leaves the hierarchical term unchanged and lets mu move when sigma is
 small. Optional joint scale move: sigma_d and the deviations X[:, d] - mu_d

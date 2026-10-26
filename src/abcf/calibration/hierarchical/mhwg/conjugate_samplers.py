@@ -1,6 +1,6 @@
 """Conjugate Gibbs updates of the population parameters (alternative to MH).
 
-Original author: Gustav Robertson.
+Original author: Gustav Robertson (Uppsala University).
 Changes for abcf: demo block under __main__ removed.
 
 mean_sampler: mu | X, sig ~ N(mean(X), sig^2 / n_cases)   (flat prior on mu)

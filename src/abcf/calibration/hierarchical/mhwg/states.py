@@ -1,6 +1,6 @@
 """State of the hierarchical sampler.
 
-Original author: Gustav Robertson (created 20 Sep 2024).
+Original author: Gustav Robertson (Uppsala University) (created 20 Sep 2024).
 Changes for abcf: none (docstrings only).
 """
 

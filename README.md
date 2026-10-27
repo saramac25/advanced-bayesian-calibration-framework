@@ -43,10 +43,17 @@ The changes made for this framework are listed in the header of each file and do
 not alter the algorithm. The structure of the GP ensemble in
 `src/abcf/surrogate/gp.py` is also derived from his code.
 
-**Framework.** The integration into a complete, solver-agnostic framework
-(sensitivity screening, GP and PCA surrogates, standard calibration, driver of the
-hierarchical sampler and joint shift move, diagnostics, validation, examples) is the
-work of **Sara Maccario** (PSI / EPFL), under the supervision of Mathieu Hursin.
+**Framework.** **Sara Maccario** (PSI / EPFL) built, under the supervision of
+Mathieu Hursin, the complete, solver-agnostic framework around the sampler:
+sensitivity and correlation analysis (Morris screening over wide ranges, Sobol'
+indices computed on the GP surrogates within literature-based ranges, Spearman
+correlation with false-discovery-rate control), GP surrogates with configurable
+kernels, standard calibration (emcee), the driver of the hierarchical sampler and
+the joint shift and scale moves, convergence diagnostics, predictive validation and the
+examples. Time-dependent outputs are reduced with the standard scikit-learn PCA,
+with one GP per principal component as in Gustav Robertson's scripts. The
+framework then treats the PCA scores like scalar outputs, from the correlation
+analysis to calibration and validation.
 
 ## Acknowledgements
 
@@ -140,4 +147,4 @@ al. (2026); see [`CITATION.cff`](CITATION.cff).
 
 ## License
 
-BSD 3-Clause License, see [`LICENSE`](LICENSE). The files in `src/abcf/calibration/hierarchical/mhwg/` are by Gustav Robertson and are published here as agreed with him during his PhD.
+BSD 3-Clause License, see [`LICENSE`](LICENSE). The files in `src/abcf/calibration/hierarchical/mhwg/` are by Gustav Robertson and are published here with his agreement.
